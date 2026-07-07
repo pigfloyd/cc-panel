@@ -1,0 +1,17 @@
+{
+  "name": "cc-panel",
+  "version": "0.1.0",
+  "description": "Claude Code multi-terminal status panel for Windows",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "koffi": "^2.9.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

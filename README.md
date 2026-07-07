@@ -1,0 +1,50 @@
+# cc-panel
+
+Claude Code / Codex CLI 多终端状态面板（Windows）。常驻副屏，把每个正在运行的 agent 会话显示为一张卡片，用颜色区分状态；点击卡片把对应的 Windows Terminal 窗口移到主屏并置前。
+
+## 状态颜色
+
+| 颜色 | 状态 | 含义 |
+|---|---|---|
+| 🔵 蓝（呼吸） | 工作中 | Claude 正在跑任务 |
+| 🔴 红（快闪） | 等待输入 | 权限确认 / 等你回复，Claude 被卡住 |
+| 🟢 绿 | 已完成 | 回合结束，来看结果 |
+| 🟠 橙 | 出错 | 工具失败 / 停止失败 |
+| ⚪ 灰蓝 | 空闲 | 会话刚启动还没干活 |
+| ⚫ 灰（半透明） | 已结束 / 进程退出 | 会话正常退出（15 秒后消失）或 claude 进程没了 |
+
+## 使用
+
+```powershell
+npm install
+npm start
+```
+
+启动 cc-panel 后会自动安装 hooks：把 cc-panel 的 hook 条目追加到 Claude Code 的 `~/.claude/settings.json`（如果存在）以及 Codex CLI 的 `~/.codex/hooks.json`（保留已有的其他 hooks，首次写入前自动备份为 `*.cc-panel-bak`）。之后**新启动**的 `claude` / `codex` 会话会自动出现在面板上。
+
+Codex CLI 的非托管 hooks 需要在 Codex 里信任：启动 `codex` 后按提示运行 `/hooks`，审核并信任 cc-panel hook。
+
+- 📌 窗口置顶开关
+- 🔔 状态变化提示音开关（变绿/变红时响）
+- 面板位置和大小自动记忆；首次启动停靠在副屏右侧
+
+## 工作原理
+
+```
+claude / codex (WT 窗口) ── hooks ──► hook/cc-panel-hook.js ── HTTP POST ──► 127.0.0.1:24333 (面板)
+```
+
+- **状态**来自 hooks：Claude Code 使用 SessionStart / UserPromptSubmit / PreToolUse / Stop / Notification / SessionEnd / StopFailure / PostToolUseFailure；Codex CLI 使用 SessionStart / UserPromptSubmit / PreToolUse / PermissionRequest / PostToolUse / Stop。
+- **会话→窗口映射**：hook 在 SessionStart / UserPromptSubmit 时刻（你刚在那个终端敲过键，它大概率是前台窗口）用一次 PowerShell 快照抓前台窗口 HWND，并校验窗口类是 `CASCADIA_HOSTING_WINDOW_CLASS`。每次提交 prompt 自动刷新映射。
+- **点击置前**：koffi FFI 调 `SetWindowPos` + `SetForegroundWindow`，窗口移到主显示器工作区居中；最小化的窗口自动还原。
+- 面板没在运行时，hook 100ms 超时静默失败，对 claude 无任何影响。
+
+## 已知限制
+
+- 面板启动**之前**就在跑的会话：卡片会在下一个 hook 事件到达时出现，但窗口映射要等你下一次提交 prompt 才建立（此前点击提示"无窗口"）。
+- claude / codex 跑在 VS Code / 其他终端里：状态正常显示，但没有 WT 窗口可聚焦，卡片标"无窗口"。
+- 提交 prompt 后瞬间切走窗口（<300ms）可能抓错前台窗口——下次提交会自动纠正。
+
+## 卸载
+
+面板内目前无卸载按钮（M2），手动方式：删除 `~/.claude/settings.json` 和/或 `~/.codex/hooks.json` 中所有 command 含 `cc-panel-hook.js` 的条目，或用对应的 `*.cc-panel-bak` 备份还原。
