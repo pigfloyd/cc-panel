@@ -26,6 +26,7 @@ pnpm-debug.log*
 !.env.example
 .claude/
 .codex/
+.trellis/
 
 # OS and editor files
 .DS_Store

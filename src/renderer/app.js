@@ -76,37 +76,41 @@ function buildCard(s) {
   card.dataset.state = s.state;
   card.dataset.id = s.id;
 
-  const row1 = document.createElement("div");
-  row1.className = "row1";
+  const head = document.createElement("div");
+  head.className = "head";
   const dot = document.createElement("span");
   dot.className = "dot";
   const project = document.createElement("span");
   project.className = "project";
   project.textContent = s.project;
   project.title = s.cwd;
-  row1.append(dot, project);
+  head.append(dot, project);
 
-  const statusRow = document.createElement("div");
-  statusRow.className = "status-row";
-
-  const status = document.createElement("div");
-  status.className = "status-label";
-  status.textContent = STATE_LABEL[s.state] || s.state;
-  statusRow.append(status);
+  const meta = document.createElement("div");
+  meta.className = "meta";
 
   if (!s.hasWindow) {
     const tag = document.createElement("span");
     tag.className = "no-win-tag";
     tag.textContent = "无窗口";
-    statusRow.append(tag);
+    meta.append(tag);
   }
 
-  const detail = document.createElement("div");
-  detail.className = "detail";
-  detail.textContent = detailText(s);
-  detail.title = detail.textContent;
+  const status = document.createElement("span");
+  status.className = "state-label";
+  status.textContent = STATE_LABEL[s.state] || s.state;
+  meta.append(status);
 
-  card.append(row1, statusRow, detail);
+  card.append(head, meta);
+
+  const detailStr = detailText(s);
+  if (detailStr) {
+    const detail = document.createElement("div");
+    detail.className = "detail";
+    detail.textContent = detailStr;
+    detail.title = detailStr;
+    card.append(detail);
+  }
 
   card.addEventListener("click", async () => {
     if (!s.hasWindow) {

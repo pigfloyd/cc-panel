@@ -35,6 +35,9 @@ class SessionStore {
 
     let s = this.sessions.get(id);
     if (!s) {
+      // A late/out-of-order SessionEnd for a session we never tracked must not
+      // resurrect a card — async hooks can deliver end before start.
+      if (body.event === "SessionEnd") return;
       s = {
         id,
         cwd: "",
@@ -72,17 +75,22 @@ class SessionStore {
     s.endedAt = null; // any event revives an "ended" card
 
     if (body.event === "SessionEnd") {
-      if (body.source === "clear") {
-        this._setState(s, "idle", ts);
-        s.currentTool = null;
-        s.lastPrompt = null;
-        s.message = null;
-      } else {
-        this._setState(s, "ended", ts);
-        s.endedAt = ts;
-      }
+      // /clear also ends the session (source="clear"); Claude Code then opens a
+      // fresh session with a NEW session_id, so ending this card is correct — the
+      // replacement is handled when that SessionStart arrives (see below).
+      this._setState(s, "ended", ts);
+      s.endedAt = ts;
       this._emit();
       return;
+    }
+
+    // /clear opens a new session (new session_id) on the same agent process.
+    // Drop the predecessor card so the fresh session replaces it in place
+    // instead of showing up as a duplicate.
+    if (body.event === "SessionStart" && body.source === "clear" && s.agent_pid) {
+      for (const [otherId, other] of this.sessions) {
+        if (otherId !== id && other.agent_pid === s.agent_pid) this.sessions.delete(otherId);
+      }
     }
 
     const next = EVENT_STATE[body.event];
