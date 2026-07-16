@@ -4,7 +4,8 @@
   "description": "Claude Code multi-terminal status panel for Windows",
   "main": "src/main/index.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "test": "node --test"
   },
   "author": "",
   "license": "MIT",

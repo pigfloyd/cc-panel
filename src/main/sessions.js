@@ -78,8 +78,7 @@ class SessionStore {
       // /clear also ends the session (source="clear"); Claude Code then opens a
       // fresh session with a NEW session_id, so ending this card is correct — the
       // replacement is handled when that SessionStart arrives (see below).
-      this._setState(s, "ended", ts);
-      s.endedAt = ts;
+      this._setTerminalState(s, "ended", ts);
       this._emit();
       return;
     }
@@ -130,6 +129,11 @@ class SessionStore {
     s.stateSince = ts;
   }
 
+  _setTerminalState(s, state, ts) {
+    this._setState(s, state, ts);
+    s.endedAt = ts;
+  }
+
   _poll() {
     const now = Date.now();
     let changed = false;
@@ -148,7 +152,7 @@ class SessionStore {
       }
       if (s.agent_pid && s.state !== "ended" && s.state !== "dead") {
         if (!pidAlive(s.agent_pid)) {
-          this._setState(s, "dead", now);
+          this._setTerminalState(s, "dead", now);
           changed = true;
         }
       }
