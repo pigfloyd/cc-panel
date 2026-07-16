@@ -52,6 +52,77 @@ test("includes the client and state start time in snapshots", () => {
   assert.equal(session.stateSince, 123_456);
 });
 
+test("removes a completed session when its mapped terminal window closes", () => {
+  const store = new SessionStore();
+  store.dispose();
+  const win32 = require("../src/main/win32");
+  const realIsWindowAlive = win32.isWindowAlive;
+  win32.isWindowAlive = () => false;
+
+  try {
+    store.handleEvent({ session_id: "codex:done", event: "SessionStart", wt_hwnd: "101" });
+    store.handleEvent({ session_id: "codex:done", event: "Stop" });
+
+    store._poll();
+    assert.deepEqual(store.snapshot(), []);
+  } finally {
+    win32.isWindowAlive = realIsWindowAlive;
+  }
+});
+
+test("removes completed PowerShell and cmd sessions when their terminal process exits", () => {
+  const store = new SessionStore();
+  store.dispose();
+  const realKill = process.kill;
+  const exitedTerminalPids = new Set([201, 202]);
+  process.kill = (pid) => {
+    if (!exitedTerminalPids.has(pid)) return;
+    const err = new Error("process not found");
+    err.code = "ESRCH";
+    throw err;
+  };
+
+  try {
+    store.handleEvent({
+      session_id: "codex:powershell",
+      event: "SessionStart",
+      agent_pid: 301,
+      terminal_pid: 201,
+    });
+    store.handleEvent({ session_id: "codex:powershell", event: "Stop" });
+    store.handleEvent({
+      session_id: "codex:cmd",
+      event: "SessionStart",
+      agent_pid: 302,
+      terminal_pid: 202,
+    });
+    store.handleEvent({ session_id: "codex:cmd", event: "Stop" });
+
+    store._poll();
+    assert.deepEqual(store.snapshot(), []);
+  } finally {
+    process.kill = realKill;
+  }
+});
+
+test("marks an active session dead when its terminal window closes", () => {
+  const store = new SessionStore();
+  store.dispose();
+  const win32 = require("../src/main/win32");
+  const realIsWindowAlive = win32.isWindowAlive;
+  win32.isWindowAlive = () => false;
+
+  try {
+    store.handleEvent({ session_id: "codex:working", event: "SessionStart", wt_hwnd: "101" });
+    store.handleEvent({ session_id: "codex:working", event: "UserPromptSubmit" });
+
+    store._poll();
+    assert.equal(store.snapshot()[0].state, "dead");
+  } finally {
+    win32.isWindowAlive = realIsWindowAlive;
+  }
+});
+
 test("minimizes each tracked terminal window once", () => {
   const store = new SessionStore();
   store.dispose();

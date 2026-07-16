@@ -7,17 +7,17 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="floating-actions" aria-label="操作">
-    <button id="btn-terminal" class="icon-btn terminal-btn" title="打开 Windows Terminal">WT</button>
-    <button id="btn-collapse-terminals" class="icon-btn" title="一键收起所有终端" aria-label="一键收起所有终端">-</button>
-    <button id="btn-settings" class="icon-btn" title="设置">⚙</button>
-  </div>
   <section id="permissions" class="permissions hidden" aria-label="待处理权限请求"></section>
   <main id="cards"></main>
   <div id="empty" class="empty hidden">
-    <p>还没有 Claude Code 会话</p>
-    <p class="hint">在任意 Windows Terminal 里启动 <code>claude</code> 后，<br/>会话卡片会自动出现在这里</p>
+    <p>还没有 Claude Code 或 Codex 会话</p>
+    <p class="hint">打开终端后启动 <code>claude</code> 或 <code>codex</code>，<br/>会话卡片会自动出现在这里</p>
   </div>
+  <nav class="bottom-toolbar" aria-label="终端操作">
+    <button id="btn-settings" class="icon-btn" type="button" title="设置">⚙</button>
+    <button id="btn-collapse-terminals" class="toolbar-btn toolbar-btn-secondary" type="button">收起所有终端窗口</button>
+    <button id="btn-terminal" class="toolbar-btn toolbar-btn-primary" type="button">新建终端</button>
+  </nav>
   <section id="settings-panel" class="settings-panel hidden" aria-label="设置">
     <label class="setting-row" for="setting-always-on-top">
       <span>窗口置顶</span>
@@ -30,6 +30,15 @@
     <label class="setting-row" for="setting-auto-launch">
       <span>开机自启动</span>
       <input id="setting-auto-launch" type="checkbox" />
+    </label>
+    <label class="setting-row" for="setting-terminal-command">
+      <span>新终端启动</span>
+      <select id="setting-terminal-command">
+        <option value="ask">每次询问</option>
+        <option value="shell">普通 Shell</option>
+        <option value="codex">Codex</option>
+        <option value="claude">Claude</option>
+      </select>
     </label>
   </section>
   <div id="toast" class="toast hidden"></div>

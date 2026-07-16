@@ -164,6 +164,31 @@ class SessionStore {
         if (alive !== null && alive !== s.windowAlive) {
           s.windowAlive = alive;
           changed = true;
+
+          if (!alive) {
+            // Closing a completed terminal removes its card immediately. For
+            // an active session, briefly show that the process disappeared.
+            if (s.state === "done") {
+              this.sessions.delete(id);
+              continue;
+            }
+            if (s.state !== "ended" && s.state !== "dead") {
+              this._setTerminalState(s, "dead", now);
+            }
+          }
+        }
+      }
+      if (s.terminal_pid && s.state !== "ended" && s.state !== "dead") {
+        if (!pidAlive(s.terminal_pid)) {
+          // PowerShell and cmd may not yield a usable HWND. Their process is
+          // still a reliable lifecycle signal when the console is closed.
+          if (s.state === "done") {
+            this.sessions.delete(id);
+            changed = true;
+            continue;
+          }
+          this._setTerminalState(s, "dead", now);
+          changed = true;
         }
       }
       if (s.agent_pid && s.state !== "ended" && s.state !== "dead") {

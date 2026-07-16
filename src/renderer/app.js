@@ -25,13 +25,14 @@ const els = {
   settingAlwaysOnTop: document.getElementById("setting-always-on-top"),
   settingSound: document.getElementById("setting-sound"),
   settingAutoLaunch: document.getElementById("setting-auto-launch"),
+  settingTerminalCommand: document.getElementById("setting-terminal-command"),
 };
 
 let sessions = [];
 let permissions = [];
 let permissionSnapshotReady = false;
 let prevStates = new Map(); // id -> state, for flash/sound on transition
-let cfg = { alwaysOnTop: true, sound: false, autoLaunch: true };
+let cfg = { alwaysOnTop: true, sound: false, autoLaunch: true, terminalCommand: "ask" };
 let toastTimer = null;
 
 function beep() {
@@ -210,7 +211,7 @@ function buildCard(s) {
 
   card.addEventListener("click", async () => {
     if (!s.hasWindow) {
-      showToast("未找到该会话的 Windows Terminal 窗口");
+      showToast("未找到该会话的终端窗口");
       return;
     }
     const result = await window.ccPanel.focusSession(s.id);
@@ -265,6 +266,7 @@ function refreshConfigButtons() {
   els.settingAlwaysOnTop.checked = !!cfg.alwaysOnTop;
   els.settingSound.checked = !!cfg.sound;
   els.settingAutoLaunch.checked = !!cfg.autoLaunch;
+  els.settingTerminalCommand.value = cfg.terminalCommand || "ask";
 }
 
 
@@ -273,7 +275,7 @@ function setSettingsOpen(open) {
   refreshConfigButtons();
 }
 
-els.btnTerminal.addEventListener("click", async () => {
+async function openTerminal() {
   const result = await window.ccPanel.openTerminal();
   if (!result.ok && result.reason !== "canceled") {
     const message = result.reason === "unsupported_platform"
@@ -281,7 +283,9 @@ els.btnTerminal.addEventListener("click", async () => {
       : "无法打开 Windows Terminal";
     showToast(message + (result.error ? "：" + result.error : ""));
   }
-});
+}
+
+els.btnTerminal.addEventListener("click", openTerminal);
 
 els.btnCollapseTerminals.addEventListener("click", async () => {
   els.btnCollapseTerminals.disabled = true;
@@ -322,6 +326,11 @@ els.settingAutoLaunch.addEventListener("change", async () => {
   if (cfg.autoLaunchError) {
     showToast("开机自启动设置失败：" + cfg.autoLaunchError);
   }
+});
+
+els.settingTerminalCommand.addEventListener("change", async () => {
+  cfg = await window.ccPanel.setConfig({ terminalCommand: els.settingTerminalCommand.value });
+  refreshConfigButtons();
 });
 
 document.addEventListener("click", (event) => {

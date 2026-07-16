@@ -17,43 +17,43 @@
   --shadow-pop: 0 12px 32px rgba(61, 47, 38, 0.14);
 
   /* per-state palette: tint bg / border / dot / deep badge / focus ring */
-  --s-working-bg: #fff0e9;
+  --s-working-bg: #ffe2d5;
   --s-working-bd: #f1c5b4;
   --s-working-dot: #d97757;
   --s-working-tx: #b85f42;
   --s-working-ring: rgba(217, 119, 87, 0.32);
 
-  --s-needs-bg: #ffe9ed;
+  --s-needs-bg: #ffd9e0;
   --s-needs-bd: #ffcdd6;
   --s-needs-dot: #dc1f45;
   --s-needs-tx: #cf1d3e;
   --s-needs-ring: rgba(220, 31, 69, 0.36);
 
-  --s-done-bg: #e4f6ec;
+  --s-done-bg: #d4eddf;
   --s-done-bd: #c4e9d3;
   --s-done-dot: #10914f;
   --s-done-tx: #147a44;
   --s-done-ring: rgba(16, 145, 79, 0.30);
 
-  --s-error-bg: #fff2db;
+  --s-error-bg: #ffe4bb;
   --s-error-bd: #ffdca8;
   --s-error-dot: #c67a00;
   --s-error-tx: #9a5b00;
   --s-error-ring: rgba(198, 122, 0, 0.32);
 
-  --s-idle-bg: #f2f4f8;
+  --s-idle-bg: #e6eaf0;
   --s-idle-bd: #e0e4ec;
   --s-idle-dot: #79828f;
   --s-idle-tx: #58616f;
   --s-idle-ring: rgba(121, 130, 143, 0.26);
 
-  --s-ended-bg: #f1f3f6;
+  --s-ended-bg: #e3e7ec;
   --s-ended-bd: #e4e7ee;
   --s-ended-dot: #949ba5;
   --s-ended-tx: #6b7380;
   --s-ended-ring: rgba(148, 155, 165, 0.22);
 
-  --s-dead-bg: #edeff3;
+  --s-dead-bg: #dde2e9;
   --s-dead-bd: #dee2e9;
   --s-dead-dot: #7f8690;
   --s-dead-tx: #616875;
@@ -77,17 +77,6 @@ body {
   overflow: hidden;
   user-select: none;
   -webkit-font-smoothing: antialiased;
-}
-
-/* ---------- floating actions (top-right) ---------- */
-.floating-actions {
-  position: fixed;
-  top: 10px;
-  right: 12px;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .icon-btn {
@@ -132,19 +121,18 @@ body {
   background: var(--accent-soft);
 }
 
-.terminal-btn {
+#btn-settings {
+  width: 34px;
   min-width: 34px;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.4px;
-  color: #514943;
+  height: 34px;
+  padding: 0;
 }
 
 /* ---------- settings panel ---------- */
 .settings-panel {
   position: fixed;
-  top: 44px;
-  right: 12px;
+  bottom: 56px;
+  left: 12px;
   z-index: 5;
   width: 214px;
   padding: 6px;
@@ -180,12 +168,24 @@ body {
   cursor: pointer;
 }
 
+.setting-row select {
+  min-width: 92px;
+  height: 26px;
+  padding: 0 5px;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  font: inherit;
+  cursor: pointer;
+}
+
 /* ---------- cards list ---------- */
 .permissions {
   flex: 0 1 auto;
   max-height: 48vh;
   overflow-y: auto;
-  padding: 46px 12px 4px;
+  padding: 12px 12px 4px;
   display: flex;
   flex-direction: column;
   gap: 9px;
@@ -285,10 +285,15 @@ body {
 #cards {
   flex: 1;
   overflow-y: auto;
-  padding: 46px 12px 14px;
+  padding: 12px 12px 76px;
   display: flex;
   flex-direction: column;
   gap: 9px;
+}
+
+/* Let the empty state use the available content height when there are no cards. */
+#cards:empty {
+  display: none;
 }
 
 body.has-permissions #cards {
@@ -577,6 +582,73 @@ body.has-permissions #cards {
   }
 }
 
+/* ---------- bottom toolbar ---------- */
+.bottom-toolbar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: 34px 1fr 1fr;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 14px rgba(61, 47, 38, 0.06);
+}
+
+.bottom-toolbar .icon-btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+}
+
+.toolbar-btn {
+  height: 34px;
+  border: 1px solid;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease, transform 0.14s ease;
+}
+
+.toolbar-btn:hover {
+  transform: translateY(-1px);
+}
+
+.toolbar-btn:active {
+  transform: translateY(0);
+}
+
+.toolbar-btn:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.toolbar-btn-secondary {
+  color: var(--text-dim);
+  background: #f8f4f0;
+  border-color: var(--border-strong);
+}
+
+.toolbar-btn-secondary:hover {
+  color: var(--text);
+  background: #f2ece7;
+}
+
+.toolbar-btn-primary {
+  color: #fff;
+  background: var(--accent);
+  border-color: #c86649;
+}
+
+.toolbar-btn-primary:hover {
+  background: #c86649;
+}
+
 /* ---------- empty state ---------- */
 .empty {
   flex: 1;
@@ -611,7 +683,7 @@ body.has-permissions #cards {
 /* ---------- toast ---------- */
 .toast {
   position: fixed;
-  bottom: 16px;
+  bottom: 66px;
   left: 50%;
   transform: translateX(-50%);
   max-width: calc(100% - 32px);

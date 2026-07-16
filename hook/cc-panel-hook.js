@@ -37,6 +37,7 @@ const PERMISSION_FAILURE_LIMIT = 3;
 const INPUT_SUMMARY_MAX = 200;
 
 const WT_WINDOW_CLASS = "cascadia_hosting_window_class";
+const CONSOLE_WINDOW_CLASS = "consolewindowclass";
 const WT_PROCESS_NAMES = new Set(["windowsterminal.exe", "windowsterminalpreview.exe"]);
 const TERMINAL_NAMES = new Set([
   "windowsterminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe",
@@ -140,9 +141,9 @@ function getSnapshot() {
   }
 }
 
-// Walk up from our parent to find the claude process and the hosting terminal.
-// The foreground window counts as this session's WT window only if it really
-// is a Windows Terminal window — the user just typed here, so at
+// Walk up from our parent to find the agent process and hosting terminal. The
+// foreground window is accepted only when it belongs to Windows Terminal or a
+// classic PowerShell/cmd console. The user just typed here, so at
 // SessionStart/UserPromptSubmit time that inference is sound.
 function resolveFromSnapshot(snapshot) {
   const result = { agent_pid: null, terminal_pid: null, wt_hwnd: null };
@@ -163,8 +164,9 @@ function resolveFromSnapshot(snapshot) {
       }
     }
     if (SYSTEM_BOUNDARY.has(info.name)) break;
-    if (TERMINAL_NAMES.has(info.name)) result.terminal_pid = pid;
-    if (WT_PROCESS_NAMES.has(info.name)) result.terminal_pid = pid;
+    // Keep the nearest shell/terminal ancestor. In nested shells, this is the
+    // process whose exit most accurately represents this agent's console.
+    if (!result.terminal_pid && TERMINAL_NAMES.has(info.name)) result.terminal_pid = pid;
     if (!info.ppid || info.ppid === pid) break;
     pid = info.ppid;
   }
@@ -173,7 +175,9 @@ function resolveFromSnapshot(snapshot) {
   if (fg && fg.hwnd && /^[1-9]\d{0,18}$/.test(String(fg.hwnd))) {
     const fgProc = snapshot.procs.get(Number(fg.pid));
     const cls = String(fg.className || "").toLowerCase();
-    if (cls === WT_WINDOW_CLASS && fgProc && WT_PROCESS_NAMES.has(fgProc.name)) {
+    const isWindowsTerminal = cls === WT_WINDOW_CLASS && fgProc && WT_PROCESS_NAMES.has(fgProc.name);
+    const isClassicConsole = cls === CONSOLE_WINDOW_CLASS && fgProc && TERMINAL_NAMES.has(fgProc.name);
+    if (isWindowsTerminal || isClassicConsole) {
       result.wt_hwnd = String(fg.hwnd);
     }
   }
@@ -464,6 +468,7 @@ module.exports = {
   codexSessionIdFromTranscriptPath,
   inputSummary,
   permissionRequest,
+  resolveFromSnapshot,
   sessionIdFromPayload,
   writePermissionDecision,
   shouldHandlePermission,

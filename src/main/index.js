@@ -16,6 +16,15 @@ let saveBoundsTimer = null;
 let hookInstallStatus = null;
 let autoLaunchStatus = null;
 
+const TERMINAL_COMMANDS = new Set(["ask", "shell", "codex", "claude"]);
+
+function normalizeTerminalCommand(value) {
+  // "none" was used by the first implementation and silently opened a shell.
+  // Treat it as unset so existing users get an explicit choice next time.
+  if (value === "none") return "ask";
+  return TERMINAL_COMMANDS.has(value) ? value : "ask";
+}
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
@@ -98,6 +107,7 @@ function configSnapshot(extra = {}) {
     alwaysOnTop: !!cfg.alwaysOnTop,
     sound: !!cfg.sound,
     autoLaunch: !!cfg.autoLaunch,
+    terminalCommand: normalizeTerminalCommand(cfg.terminalCommand),
     ...extra,
   };
 }
@@ -183,12 +193,37 @@ function registerIpc() {
     }
 
     const cwd = selection.filePaths[0];
+    let terminalCommand = normalizeTerminalCommand(cfg.terminalCommand);
+    if (terminalCommand === "ask") {
+      const commandSelection = await dialog.showMessageBox(win, {
+        type: "question",
+        title: "新建终端",
+        message: "选择新终端启动后要运行的命令",
+        detail: cwd,
+        buttons: ["Codex", "Claude", "普通 Shell", "取消"],
+        defaultId: 0,
+        cancelId: 3,
+        noLink: true,
+      });
+      if (commandSelection.response === 3) {
+        return { ok: false, reason: "canceled" };
+      }
+      terminalCommand = ["codex", "claude", "shell"][commandSelection.response];
+      cfg.terminalCommand = "ask";
+    }
     cfg.terminalDir = cwd;
     config.save(cfg);
 
     return new Promise((resolve) => {
       try {
-        const child = spawn("wt.exe", ["-d", cwd], {
+        const args = ["new-tab", "-d", cwd];
+        // npm-installed agent CLIs are usually .cmd/.ps1 shims on Windows.
+        // Run them through cmd.exe so Windows Terminal does not try to launch
+        // the shim as a native executable and silently fall back to the shell.
+        if (terminalCommand === "codex" || terminalCommand === "claude") {
+          args.push("cmd.exe", "/d", "/k", terminalCommand);
+        }
+        const child = spawn("wt.exe", args, {
           detached: true,
           stdio: "ignore",
           windowsHide: false,
@@ -201,7 +236,7 @@ function registerIpc() {
         };
         child.once("spawn", () => {
           child.unref();
-          finish({ ok: true, cwd });
+          finish({ ok: true, cwd, terminalCommand });
         });
         child.once("error", (err) => {
           finish({ ok: false, error: String(err.message || err) });
@@ -233,6 +268,9 @@ function registerIpc() {
         if (win) win.setAlwaysOnTop(cfg.alwaysOnTop);
       }
       if (typeof patch.sound === "boolean") cfg.sound = patch.sound;
+      if (typeof patch.terminalCommand === "string" && TERMINAL_COMMANDS.has(patch.terminalCommand)) {
+        cfg.terminalCommand = patch.terminalCommand;
+      }
       let autoLaunchError = null;
       if (typeof patch.autoLaunch === "boolean") {
         cfg.autoLaunch = patch.autoLaunch;
