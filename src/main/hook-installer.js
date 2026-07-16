@@ -1,4 +1,4 @@
-// hook-installer.js — idempotently install cc-panel hooks for Claude Code and Codex CLI.
+// hook-installer.js - idempotently install cc-panel hooks for Claude Code and Codex CLI.
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -20,6 +20,7 @@ const CLAUDE_EVENTS = [
   "StopFailure",
   "PostToolUseFailure",
   "Notification",
+  "PermissionRequest",
 ];
 
 const CODEX_EVENTS = [
@@ -42,6 +43,22 @@ function nodePath() {
   return "node.exe";
 }
 
+function windowsHookRuntime() {
+  const devElectron = path.join(__dirname, "..", "..", "node_modules", "electron", "dist", "electron.exe");
+  if (fs.existsSync(devElectron)) return { executable: devElectron, electron: true };
+  if (process.versions.electron) return { executable: process.execPath, electron: true };
+  return { executable: nodePath(), electron: false };
+}
+
+function windowsHookCommand(event, source, shell) {
+  const runtime = windowsHookRuntime();
+  const invocation = `"${runtime.executable}" "${HOOK_SCRIPT}" ${event} ${source}`;
+  if (!runtime.electron) return shell === "powershell" ? `& ${invocation}` : invocation;
+  return shell === "powershell"
+    ? `$env:ELECTRON_RUN_AS_NODE="1"; & ${invocation}`
+    : `set "ELECTRON_RUN_AS_NODE=1" && ${invocation}`;
+}
+
 function readJsonFile(file, fallback) {
   if (!fs.existsSync(file)) return fallback;
   const raw = fs.readFileSync(file, "utf8");
@@ -61,15 +78,16 @@ function entryHasMarker(entry) {
 }
 
 function claudeEntry(event) {
+  const isPermissionRequest = event === "PermissionRequest";
   return {
     matcher: "",
     hooks: [
       {
         type: "command",
         shell: "powershell",
-        command: `& "${nodePath()}" "${HOOK_SCRIPT}" ${event}`,
-        async: true,
-        timeout: 5,
+        command: windowsHookCommand(event, "claude", "powershell"),
+        async: !isPermissionRequest,
+        timeout: isPermissionRequest ? 300 : 5,
       },
     ],
   };
@@ -81,8 +99,10 @@ function codexEntry(event) {
     hooks: [
       {
         type: "command",
-        command: `node "${HOOK_SCRIPT}" ${event}`,
-        commandWindows: `cmd /d /c "\"${nodePath()}\" \"${HOOK_SCRIPT}\" ${event}"`,
+        command: `node "${HOOK_SCRIPT}" ${event} codex`,
+        // Codex runs Windows hooks through PowerShell. Electron's Node mode
+        // avoids global Node/NVM version and path drift.
+        commandWindows: windowsHookCommand(event, "codex", "powershell"),
         timeout: 5,
         statusMessage: "Updating cc-panel",
       },
@@ -149,18 +169,18 @@ function isInstalled() {
   return claudeReady && isCodexInstalled();
 }
 
+function installCodex() {
+  const settings = readJsonFile(CODEX_HOOKS_PATH, {});
+  const changed = installEntries(settings, CODEX_EVENTS, codexEntry);
+  if (changed) writeJsonFile(CODEX_HOOKS_PATH, CODEX_BACKUP_PATH, settings);
+  return { changed, skipped: false };
+}
+
 function installClaude() {
   if (!fs.existsSync(CLAUDE_SETTINGS_PATH)) return { changed: false, skipped: true };
   const settings = readJsonFile(CLAUDE_SETTINGS_PATH, {});
   const changed = installEntries(settings, CLAUDE_EVENTS, claudeEntry);
   if (changed) writeJsonFile(CLAUDE_SETTINGS_PATH, CLAUDE_BACKUP_PATH, settings);
-  return { changed, skipped: false };
-}
-
-function installCodex() {
-  const settings = readJsonFile(CODEX_HOOKS_PATH, {});
-  const changed = installEntries(settings, CODEX_EVENTS, codexEntry);
-  if (changed) writeJsonFile(CODEX_HOOKS_PATH, CODEX_BACKUP_PATH, settings);
   return { changed, skipped: false };
 }
 
@@ -211,4 +231,5 @@ module.exports = {
   CODEX_EVENTS,
   SETTINGS_PATH: CLAUDE_SETTINGS_PATH,
   CODEX_HOOKS_PATH,
+  codexEntry,
 };

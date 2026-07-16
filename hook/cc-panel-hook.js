@@ -8,6 +8,7 @@ const fs = require("fs");
 const http = require("http");
 const os = require("os");
 const path = require("path");
+const crypto = require("crypto");
 const { execFileSync } = require("child_process");
 
 const EVENTS = new Set([
@@ -30,6 +31,10 @@ const PORTS = [24333, 24334, 24335, 24336, 24337];
 const RUNTIME_PATH = path.join(os.homedir(), ".cc-panel", "runtime.json");
 const POST_TIMEOUT_MS = 100;
 const STDIN_TIMEOUT_MS = 400;
+const PERMISSION_POLL_MS = 250;
+const PERMISSION_DEADLINE_MS = 290 * 1000;
+const PERMISSION_FAILURE_LIMIT = 3;
+const INPUT_SUMMARY_MAX = 200;
 
 const WT_WINDOW_CLASS = "cascadia_hosting_window_class";
 const WT_PROCESS_NAMES = new Set(["windowsterminal.exe", "windowsterminalpreview.exe"]);
@@ -175,7 +180,25 @@ function resolveFromSnapshot(snapshot) {
   return result;
 }
 
-function sessionIdFromPayload(payload) {
+function codexSessionIdFromTranscriptPath(transcriptPath) {
+  if (typeof transcriptPath !== "string" || !transcriptPath.trim()) return null;
+  const fileName = path.basename(transcriptPath.replace(/\\/g, "/"));
+  const match = fileName.match(
+    /^rollout-.+-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
+  );
+  return match ? match[1] : null;
+}
+
+function sessionIdFromPayload(payload, source) {
+  // Codex hook payloads can carry different session IDs for one rollout.
+  // The transcript filename UUID is stable across the lifecycle events.
+  if (source === "codex") {
+    const transcriptId = codexSessionIdFromTranscriptPath(
+      payload.transcript_path || payload.transcriptPath
+    );
+    if (transcriptId) return `codex:${transcriptId}`;
+  }
+
   const candidates = [
     payload.session_id,
     payload.sessionId,
@@ -187,12 +210,16 @@ function sessionIdFromPayload(payload) {
     payload.runId,
   ];
   for (const value of candidates) {
-    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "string" && value.trim()) {
+      const id = value.trim();
+      return source === "codex" && !id.startsWith("codex:") ? `codex:${id}` : id;
+    }
   }
   if (payload.transcript_path || payload.transcriptPath) {
-    return String(payload.transcript_path || payload.transcriptPath);
+    const id = String(payload.transcript_path || payload.transcriptPath);
+    return source === "codex" ? `codex:${id}` : id;
   }
-  return `session:${process.pid}:${process.cwd()}`;
+  return `${source === "codex" ? "codex:" : ""}session:${process.pid}:${process.cwd()}`;
 }
 
 function toolNameFromPayload(payload) {
@@ -233,26 +260,50 @@ function candidatePorts() {
   return ports;
 }
 
-function postOnce(port, body) {
+function runtimePort() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(RUNTIME_PATH, "utf8"));
+    const port = Number(raw && raw.port);
+    return PORTS.includes(port) ? port : null;
+  } catch {
+    return null;
+  }
+}
+
+function requestOnce(port, options) {
   return new Promise((resolve) => {
+    const body = options.body || "";
     const req = http.request(
       {
         host: "127.0.0.1",
         port,
-        path: "/event",
-        method: "POST",
-        headers: { "content-type": "application/json", "content-length": Buffer.byteLength(body) },
-        timeout: POST_TIMEOUT_MS,
+        path: options.path,
+        method: options.method || "GET",
+        headers: body ? {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+        } : undefined,
+        timeout: options.timeoutMs || POST_TIMEOUT_MS,
       },
       (res) => {
-        res.resume();
-        resolve(res.statusCode === 200 && res.headers["x-cc-panel"] === "1");
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => resolve({
+          ok: res.statusCode >= 200 && res.statusCode < 300 && res.headers["x-cc-panel"] === "1",
+          status: res.statusCode,
+          body: Buffer.concat(chunks).toString(),
+        }));
       }
     );
-    req.on("timeout", () => { req.destroy(); resolve(false); });
-    req.on("error", () => resolve(false));
+    req.on("timeout", () => { req.destroy(); resolve({ ok: false }); });
+    req.on("error", () => resolve({ ok: false }));
     req.end(body);
   });
+}
+
+function postOnce(port, body) {
+  return requestOnce(port, { method: "POST", path: "/event", body })
+    .then((result) => result.ok);
 }
 
 async function post(bodyObj) {
@@ -262,19 +313,120 @@ async function post(bodyObj) {
   }
 }
 
+function inputSummary(payload) {
+  const input = payload.tool_input || payload.toolInput || {};
+  const toolName = toolNameFromPayload(payload) || "";
+  let summary = "";
+
+  if (/^(Bash|Shell)$/i.test(toolName) && typeof input.command === "string") {
+    summary = input.command.split(/\r?\n/).find((line) => line.trim()) || "";
+  } else if (/^(Write|Edit|MultiEdit|Read)$/i.test(toolName)) {
+    summary = input.file_path || input.filePath || input.path || "";
+  }
+
+  if (!summary) {
+    try { summary = JSON.stringify(input); } catch {}
+  }
+  summary = String(summary || "").trim();
+  if (PROMPT_SECRET_RE.test(summary)) return "[内容包含敏感信息，已隐藏]";
+  return summary.length > INPUT_SUMMARY_MAX
+    ? `${summary.slice(0, INPUT_SUMMARY_MAX - 1)}…`
+    : summary;
+}
+
+function permissionRequest(payload, source) {
+  const cwd = payload.cwd || payload.current_working_directory || process.cwd();
+  const sessionId = sessionIdFromPayload(payload, source);
+  return {
+    v: 1,
+    type: "permission-request",
+    req_id: `${sessionId}:${process.pid}:${Date.now()}:${crypto.randomBytes(8).toString("hex")}`,
+    session_id: sessionId,
+    cwd,
+    project: path.basename(cwd) || cwd,
+    tool_name: toolNameFromPayload(payload) || "Unknown tool",
+    input_summary: inputSummary(payload),
+    ts: Date.now(),
+  };
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function writePermissionDecision(decision) {
+  const decisionBody = { behavior: decision };
+  if (decision === "deny") decisionBody.message = "Denied from cc-panel";
+  const output = {
+    hookSpecificOutput: {
+      hookEventName: "PermissionRequest",
+      decision: decisionBody,
+    },
+  };
+  return new Promise((resolve) => process.stdout.write(JSON.stringify(output), resolve));
+}
+
+async function handlePermission(payload) {
+  const port = runtimePort();
+  if (!port) return;
+
+  const health = await requestOnce(port, { path: "/health" });
+  if (!health.ok) return;
+
+  const request = permissionRequest(payload, "claude");
+  const created = await requestOnce(port, {
+    method: "POST",
+    path: "/permission-request",
+    body: JSON.stringify(request),
+  });
+  if (!created.ok) return;
+
+  const deadline = Date.now() + PERMISSION_DEADLINE_MS;
+  let consecutiveFailures = 0;
+  while (Date.now() < deadline) {
+    const result = await requestOnce(port, {
+      path: `/permission-decision?req_id=${encodeURIComponent(request.req_id)}`,
+    });
+    if (!result.ok) {
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= PERMISSION_FAILURE_LIMIT) return;
+    } else {
+      consecutiveFailures = 0;
+      try {
+        const body = JSON.parse(result.body);
+        if (body.decision === "allow" || body.decision === "deny") {
+          await writePermissionDecision(body.decision);
+          return;
+        }
+      } catch {}
+    }
+    await delay(PERMISSION_POLL_MS);
+  }
+}
+
+function shouldHandlePermission(event, source) {
+  return event === "PermissionRequest" && source === "claude";
+}
+
 async function main() {
   const event = process.argv[2];
+  const source = process.argv[3] || "unknown";
   if (!EVENTS.has(event)) process.exit(0);
 
   // Snapshot runs while stdin is still buffering, so its cost overlaps I/O.
   const snapshot = SNAPSHOT_EVENTS.has(event) ? getSnapshot() : null;
   const payload = await readStdinJson();
 
+  if (shouldHandlePermission(event, source)) {
+    await handlePermission(payload);
+    process.exit(0);
+  }
+
   const body = {
     v: 1,
     event,
     ts: Date.now(),
-    session_id: sessionIdFromPayload(payload),
+    session_id: sessionIdFromPayload(payload, source),
     cwd: payload.cwd || payload.current_working_directory || process.cwd(),
   };
   if (payload.transcript_path) body.transcript_path = payload.transcript_path;
@@ -303,4 +455,15 @@ async function main() {
   process.exit(0);
 }
 
-main();
+if (require.main === module) {
+  main().catch(() => process.exit(0));
+}
+
+module.exports = {
+  codexSessionIdFromTranscriptPath,
+  inputSummary,
+  permissionRequest,
+  sessionIdFromPayload,
+  writePermissionDecision,
+  shouldHandlePermission,
+};

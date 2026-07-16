@@ -12,6 +12,7 @@
     <button id="btn-terminal" class="icon-btn terminal-btn" title="打开 Windows Terminal">WT</button>
     <button id="btn-settings" class="icon-btn" title="设置">⚙</button>
   </div>
+  <section id="permissions" class="permissions hidden" aria-label="待处理权限请求"></section>
   <main id="cards"></main>
   <div id="empty" class="empty hidden">
     <p>还没有 Claude Code 会话</p>
@@ -32,6 +33,7 @@
     </label>
   </section>
   <div id="toast" class="toast hidden"></div>
+  <script src="session-order.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -6,9 +6,11 @@ const config = require("./config");
 const server = require("./server");
 const installer = require("./hook-installer");
 const { SessionStore } = require("./sessions");
+const { PermissionStore } = require("./permissions");
 
 let win = null;
 let store = null;
+let permissionStore = null;
 let cfg = config.load();
 let saveBoundsTimer = null;
 let hookInstallStatus = null;
@@ -32,9 +34,12 @@ async function main() {
   store = new SessionStore((snapshot) => {
     if (win && !win.isDestroyed()) win.webContents.send("sessions", snapshot);
   });
+  permissionStore = new PermissionStore((snapshot) => {
+    if (win && !win.isDestroyed()) win.webContents.send("permissions", snapshot);
+  });
 
   try {
-    await server.start((body) => store.handleEvent(body));
+    await server.start((body) => store.handleEvent(body), permissionStore);
   } catch (err) {
     dialog.showErrorBox("cc-panel", String(err.message || err));
     app.quit();
@@ -49,6 +54,7 @@ async function main() {
   app.on("window-all-closed", () => {
     server.clearRuntime();
     store.dispose();
+    permissionStore.dispose();
     app.quit();
   });
 }
@@ -112,7 +118,7 @@ function createWindow() {
     ...bounds,
     minWidth: 300,
     minHeight: 400,
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#f7f5f2",
     ...(process.platform === "win32" ? {
       backgroundMaterial: "mica",
     } : {}),
@@ -143,6 +149,7 @@ function createWindow() {
 function registerIpc() {
   ipcMain.handle("get-state", () => ({
     sessions: store.snapshot(),
+    permissions: permissionStore.snapshot(),
     hooksInstalled: installer.isInstalled(),
     claudeInstalled: installer.isClaudeInstalled(),
     codexInstalled: installer.isCodexInstalled(),
@@ -154,6 +161,10 @@ function registerIpc() {
   ipcMain.handle("focus-session", (_e, id) => {
     return store.focus(id, screen.getPrimaryDisplay().workArea);
   });
+
+  ipcMain.handle("resolve-permission", (_e, reqId, decision) => ({
+    ok: permissionStore.resolve(reqId, decision),
+  }));
 
   ipcMain.handle("open-terminal", async () => {
     if (process.platform !== "win32") return { ok: false, reason: "unsupported_platform" };
