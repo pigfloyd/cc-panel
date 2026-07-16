@@ -88,6 +88,15 @@ test("uses Codex rollout transcript ID across hook lifecycle events", () => {
   assert.equal(sessionIdFromPayload({ session_id: "stop-id", transcript_path: transcriptPath }, "codex"), expected);
 });
 
+test("uses UUIDv7 Codex rollout transcript IDs across hook lifecycle events", () => {
+  const transcriptPath = "C:\\Users\\ourchem\\.codex\\sessions\\2026\\07\\16\\rollout-2026-07-16T14-00-00-019f6982-b025-7dc3-9312-59a07c3d7a4d.jsonl";
+  const expected = "codex:019f6982-b025-7dc3-9312-59a07c3d7a4d";
+
+  assert.equal(codexSessionIdFromTranscriptPath(transcriptPath), expected.slice("codex:".length));
+  assert.equal(sessionIdFromPayload({ session_id: "prompt-id", transcript_path: transcriptPath }, "codex"), expected);
+  assert.equal(sessionIdFromPayload({ session_id: "stop-id", transcript_path: transcriptPath }, "codex"), expected);
+});
+
 test("prefixes Codex fallback IDs without changing Claude IDs", () => {
   assert.equal(sessionIdFromPayload({ session_id: "session-1" }, "codex"), "codex:session-1");
   assert.equal(sessionIdFromPayload({ session_id: "session-1" }, "claude"), "session-1");

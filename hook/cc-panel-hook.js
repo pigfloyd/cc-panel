@@ -184,7 +184,7 @@ function codexSessionIdFromTranscriptPath(transcriptPath) {
   if (typeof transcriptPath !== "string" || !transcriptPath.trim()) return null;
   const fileName = path.basename(transcriptPath.replace(/\\/g, "/"));
   const match = fileName.match(
-    /^rollout-.+-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
+    /^rollout-.+-([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.jsonl$/i
   );
   return match ? match[1] : null;
 }
@@ -426,6 +426,7 @@ async function main() {
     v: 1,
     event,
     ts: Date.now(),
+    client: source,
     session_id: sessionIdFromPayload(payload, source),
     cwd: payload.cwd || payload.current_working_directory || process.cwd(),
   };

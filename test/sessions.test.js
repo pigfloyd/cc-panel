@@ -35,3 +35,19 @@ test("removes a dead session after the terminal-state linger period", () => {
     process.kill = realKill;
   }
 });
+
+test("includes the client and state start time in snapshots", () => {
+  const store = new SessionStore();
+  store.dispose();
+
+  store.handleEvent({
+    session_id: "codex:test",
+    event: "UserPromptSubmit",
+    client: "codex",
+    ts: 123_456,
+  });
+
+  const [session] = store.snapshot();
+  assert.equal(session.client, "codex");
+  assert.equal(session.stateSince, 123_456);
+});

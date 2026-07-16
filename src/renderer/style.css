@@ -421,11 +421,29 @@ body.has-permissions #cards {
 
 .card .meta {
   grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-row: 1 / span 3;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
+}
+
+.card .session-context {
+  grid-column: 1;
+  grid-row: 2;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-mute);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.card .context-separator {
+  color: var(--border-strong);
 }
 
 .card .state-label {
@@ -456,7 +474,7 @@ body.has-permissions #cards {
 
 .card .detail {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 3;
   min-width: 0;
   color: var(--text-dim);
   font-size: 11px;

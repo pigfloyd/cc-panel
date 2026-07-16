@@ -42,6 +42,7 @@ class SessionStore {
         id,
         cwd: "",
         project: "",
+        client: body.client || null,
         state: "idle",
         stateSince: ts,
         lastEventTs: 0,
@@ -62,6 +63,7 @@ class SessionStore {
       s.cwd = body.cwd;
       s.project = path.basename(body.cwd) || body.cwd;
     }
+    if (body.client) s.client = body.client;
     if (body.agent_pid) s.agent_pid = body.agent_pid;
     if (body.terminal_pid) s.terminal_pid = body.terminal_pid;
     if (body.wt_hwnd) {
@@ -165,6 +167,7 @@ class SessionStore {
       id: s.id,
       project: s.project || "(unknown)",
       cwd: s.cwd,
+      client: s.client,
       state: s.state,
       stateSince: s.stateSince,
       currentTool: s.currentTool,

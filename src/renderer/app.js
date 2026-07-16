@@ -11,6 +11,7 @@ const STATE_LABEL = {
 // transitions worth interrupting the user for
 const NOTIFY_STATES = new Set(["needs_input", "done", "error"]);
 const orderSessions = createStableSessionOrder();
+const { clientLabel, stateAgeLabel } = sessionMeta;
 
 const els = {
   permissions: document.getElementById("permissions"),
@@ -58,6 +59,15 @@ function detailText(s) {
   if (s.state === "working" && s.currentTool) return `工具：${s.currentTool}`;
   if (s.lastPrompt) return s.lastPrompt;
   return s.cwd || "";
+}
+
+function refreshStateAges(now = Date.now()) {
+  for (const elapsed of els.cards.querySelectorAll(".state-age")) {
+    elapsed.textContent = stateAgeLabel({
+      state: elapsed.dataset.state,
+      stateSince: Number(elapsed.dataset.since),
+    }, now);
+  }
 }
 
 function render() {
@@ -171,6 +181,24 @@ function buildCard(s) {
   meta.append(status);
 
   card.append(head, meta);
+
+  const context = document.createElement("div");
+  context.className = "session-context";
+  const client = document.createElement("span");
+  client.textContent = clientLabel(s);
+  const separator = document.createElement("span");
+  separator.className = "context-separator";
+  separator.textContent = "·";
+  const elapsed = document.createElement("span");
+  elapsed.className = "state-age";
+  elapsed.dataset.state = s.state;
+  elapsed.dataset.since = String(s.stateSince);
+  elapsed.textContent = stateAgeLabel(s);
+  elapsed.title = s.stateSince
+    ? `当前状态始于 ${new Date(s.stateSince).toLocaleString()}`
+    : "";
+  context.append(client, separator, elapsed);
+  card.append(context);
 
   const detailStr = detailText(s);
   if (detailStr) {
@@ -290,6 +318,7 @@ document.addEventListener("keydown", (event) => {
 });
 window.ccPanel.onSessions(applySnapshot);
 window.ccPanel.onPermissions(applyPermissionSnapshot);
+setInterval(() => refreshStateAges(), 1000);
 
 (async function init() {
   const state = await window.ccPanel.getState();
