@@ -8,6 +8,10 @@ const installer = require("./hook-installer");
 const { SessionStore } = require("./sessions");
 const { PermissionStore } = require("./permissions");
 const { captureRunningSessions } = require("./startup-capture");
+const {
+  normalizeTerminalExecutable,
+  buildLaunchSpec,
+} = require("./terminal-launcher");
 
 let win = null;
 let store = null;
@@ -107,6 +111,7 @@ function configSnapshot(extra = {}) {
     sound: !!cfg.sound,
     autoLaunch: !!cfg.autoLaunch,
     terminalCommand: normalizeTerminalCommand(cfg.terminalCommand),
+    terminalExecutable: normalizeTerminalExecutable(cfg.terminalExecutable),
     ...extra,
   };
 }
@@ -179,6 +184,26 @@ function registerIpc() {
     ok: permissionStore.resolve(reqId, decision),
   }));
 
+  ipcMain.handle("select-terminal-executable", async () => {
+    const current = normalizeTerminalExecutable(cfg.terminalExecutable);
+    const selection = await dialog.showOpenDialog(win, {
+      title: "选择终端程序",
+      defaultPath: current || undefined,
+      properties: ["openFile"],
+      filters: [{ name: "可执行程序", extensions: ["exe"] }],
+    });
+    if (selection.canceled || !selection.filePaths.length) {
+      return { ok: false, reason: "canceled", config: configSnapshot() };
+    }
+    if (path.extname(selection.filePaths[0]).toLowerCase() !== ".exe") {
+      return { ok: false, reason: "invalid_executable", config: configSnapshot() };
+    }
+
+    cfg.terminalExecutable = selection.filePaths[0];
+    config.save(cfg);
+    return { ok: true, config: configSnapshot() };
+  });
+
   ipcMain.handle("open-terminal", async (_event, terminalCommand) => {
     if (process.platform !== "win32") return { ok: false, reason: "unsupported_platform" };
     if (!TERMINAL_COMMANDS.has(terminalCommand)) {
@@ -186,7 +211,7 @@ function registerIpc() {
     }
 
     const selection = await dialog.showOpenDialog(win, {
-      title: "选择 Windows Terminal 启动目录",
+      title: "选择终端启动目录",
       defaultPath: cfg.terminalDir || app.getPath("home"),
       properties: ["openDirectory"],
     });
@@ -200,12 +225,10 @@ function registerIpc() {
 
     return new Promise((resolve) => {
       try {
-        const args = ["new-tab", "-d", cwd];
-        // npm-installed agent CLIs are usually .cmd/.ps1 shims on Windows.
-        // Run them through cmd.exe so Windows Terminal does not try to launch
-        // the shim as a native executable and silently fall back to the shell.
-        args.push("cmd.exe", "/d", "/k", terminalCommand);
-        const child = spawn("wt.exe", args, {
+        const terminalExecutable = normalizeTerminalExecutable(cfg.terminalExecutable);
+        const launch = buildLaunchSpec(terminalExecutable, cwd, terminalCommand);
+        const child = spawn(launch.executable, launch.args, {
+          cwd: launch.cwd,
           detached: true,
           stdio: "ignore",
           windowsHide: false,
@@ -218,7 +241,7 @@ function registerIpc() {
         };
         child.once("spawn", () => {
           child.unref();
-          finish({ ok: true, cwd, terminalCommand });
+          finish({ ok: true, cwd, terminalCommand, terminalExecutable: launch.executable });
         });
         child.once("error", (err) => {
           finish({ ok: false, error: String(err.message || err) });

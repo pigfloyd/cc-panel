@@ -150,23 +150,30 @@ function resolveFromSnapshot(snapshot) {
   if (!snapshot) return result;
 
   let pid = process.ppid;
+  let foundAgent = false;
   for (let i = 0; i < 10; i++) {
     const info = snapshot.procs.get(pid);
     if (!info) break;
     if (!result.agent_pid) {
       if (info.name === "claude.exe" || info.name === "codex.exe") {
         result.agent_pid = pid;
+        foundAgent = true;
       } else if (info.name === "node.exe" &&
                  (info.commandLine.includes("claude-code") ||
                   info.commandLine.includes("@anthropic-ai") ||
                   /\bcodex\b/i.test(info.commandLine))) {
         result.agent_pid = pid;
+        foundAgent = true;
       }
     }
     if (SYSTEM_BOUNDARY.has(info.name)) break;
-    // Keep the nearest shell/terminal ancestor. In nested shells, this is the
-    // process whose exit most accurately represents this agent's console.
-    if (!result.terminal_pid && TERMINAL_NAMES.has(info.name)) result.terminal_pid = pid;
+    // Hook commands themselves run inside a short-lived PowerShell process.
+    // Only shells above the agent are hosting terminals; shells below it are
+    // hook runners and must not replace the stable startup-capture mapping.
+    if (foundAgent && pid !== result.agent_pid &&
+        !result.terminal_pid && TERMINAL_NAMES.has(info.name)) {
+      result.terminal_pid = pid;
+    }
     if (!info.ppid || info.ppid === pid) break;
     pid = info.ppid;
   }

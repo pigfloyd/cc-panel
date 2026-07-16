@@ -75,6 +75,221 @@ test("replaces a startup-captured card when its real hook session arrives", () =
   }
 });
 
+test("replaces a startup-captured card when wrapper agent PIDs differ", () => {
+  const store = new SessionStore();
+  try {
+    store.handleEvent({
+      session_id: "captured:codex:42",
+      event: "SessionStart",
+      client: "codex",
+      agent_pid: 42,
+      terminal_pid: 7,
+      wt_hwnd: "101",
+      cwd: "C:\\work\\project",
+      captured: true,
+    });
+    store.handleEvent({
+      session_id: "codex:real-session",
+      event: "UserPromptSubmit",
+      client: "codex",
+      agent_pid: 43,
+      terminal_pid: 7,
+      ts: 123,
+    });
+
+    assert.deepEqual(store.snapshot(), [{
+      id: "codex:real-session",
+      project: "project",
+      cwd: "C:\\work\\project",
+      client: "codex",
+      state: "working",
+      stateSince: 123,
+      currentTool: null,
+      lastPrompt: null,
+      message: null,
+      hasWindow: true,
+    }]);
+  } finally {
+    store.dispose();
+  }
+});
+
+test("keeps a restarted Codex session working when the captured agent exited", () => {
+  const store = new SessionStore();
+  store.dispose();
+  const realKill = process.kill;
+  const exitedAgentPid = 42;
+  process.kill = (pid) => {
+    if (pid !== exitedAgentPid) return;
+    const err = new Error("process not found");
+    err.code = "ESRCH";
+    throw err;
+  };
+
+  try {
+    store.handleEvent({
+      session_id: "captured:codex:42",
+      event: "SessionStart",
+      client: "codex",
+      agent_pid: exitedAgentPid,
+      terminal_pid: 7,
+      cwd: "C:\\work\\project",
+      captured: true,
+    });
+
+    // The original Codex process exits, but its terminal remains open.
+    store._poll();
+    assert.equal(store.snapshot()[0].state, "dead");
+
+    // A hook can occasionally miss the new agent PID. Matching the stable
+    // terminal must replace the captured card without inheriting the old PID.
+    store.handleEvent({
+      session_id: "codex:new-session",
+      event: "UserPromptSubmit",
+      client: "codex",
+      terminal_pid: 7,
+      cwd: "C:\\work\\project",
+    });
+    store._poll();
+    store._poll();
+
+    const sessions = store.snapshot();
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].id, "codex:new-session");
+    assert.equal(sessions[0].state, "working");
+  } finally {
+    process.kill = realKill;
+  }
+});
+
+test("keeps the captured card count when only the terminal window matches", () => {
+  const store = new SessionStore();
+  try {
+    for (const [pid, hwnd] of [
+      [41, "101"],
+      [42, "202"],
+      [43, "303"],
+    ]) {
+      store.handleEvent({
+        session_id: `captured:codex:${pid}`,
+        event: "SessionStart",
+        client: "codex",
+        agent_pid: pid,
+        wt_hwnd: hwnd,
+        cwd: "C:\\work\\shared",
+        captured: true,
+      });
+    }
+
+    store.handleEvent({
+      session_id: "codex:real-session",
+      event: "UserPromptSubmit",
+      client: "codex",
+      wt_hwnd: "202",
+      cwd: "C:\\work\\shared\\",
+    });
+
+    assert.deepEqual(
+      store.snapshot().map((session) => session.id),
+      ["captured:codex:41", "captured:codex:43", "codex:real-session"]
+    );
+  } finally {
+    store.dispose();
+  }
+});
+
+test("uses cwd only when it identifies one captured card", () => {
+  const store = new SessionStore();
+  try {
+    store.handleEvent({
+      session_id: "captured:codex:41",
+      event: "SessionStart",
+      client: "codex",
+      cwd: "C:\\work\\one",
+      captured: true,
+    });
+    store.handleEvent({
+      session_id: "captured:codex:42",
+      event: "SessionStart",
+      client: "codex",
+      cwd: "C:\\work\\two",
+      captured: true,
+    });
+    store.handleEvent({
+      session_id: "codex:real-session",
+      event: "UserPromptSubmit",
+      client: "codex",
+      cwd: "c:\\WORK\\two\\",
+    });
+
+    assert.deepEqual(
+      store.snapshot().map((session) => session.id),
+      ["captured:codex:41", "codex:real-session"]
+    );
+  } finally {
+    store.dispose();
+  }
+});
+
+test("does not collapse ambiguous cards that share a window and cwd", () => {
+  const store = new SessionStore();
+  try {
+    for (const pid of [41, 42]) {
+      store.handleEvent({
+        session_id: `captured:codex:${pid}`,
+        event: "SessionStart",
+        client: "codex",
+        agent_pid: pid,
+        wt_hwnd: "101",
+        cwd: "C:\\work\\shared",
+        captured: true,
+      });
+    }
+    store.handleEvent({
+      session_id: "codex:real-session",
+      event: "UserPromptSubmit",
+      client: "codex",
+      wt_hwnd: "101",
+      cwd: "C:\\work\\shared",
+    });
+
+    assert.deepEqual(
+      store.snapshot().map((session) => session.id),
+      ["captured:codex:41", "captured:codex:42", "codex:real-session"]
+    );
+  } finally {
+    store.dispose();
+  }
+});
+
+test("does not replace another client's captured card on a shared terminal PID", () => {
+  const store = new SessionStore();
+  try {
+    store.handleEvent({
+      session_id: "captured:claude:42",
+      event: "SessionStart",
+      client: "claude",
+      agent_pid: 42,
+      terminal_pid: 7,
+      captured: true,
+    });
+    store.handleEvent({
+      session_id: "codex:real-session",
+      event: "UserPromptSubmit",
+      client: "codex",
+      agent_pid: 43,
+      terminal_pid: 7,
+    });
+
+    assert.deepEqual(
+      store.snapshot().map((session) => session.id),
+      ["captured:claude:42", "codex:real-session"]
+    );
+  } finally {
+    store.dispose();
+  }
+});
+
 test("removes a completed session when its mapped terminal window closes", () => {
   const store = new SessionStore();
   store.dispose();

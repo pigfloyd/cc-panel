@@ -77,7 +77,7 @@ function capturedSessions(processes, windows, now = Date.now()) {
       agent_pid: process.pid,
       terminal_pid: terminalPid,
       wt_hwnd: hwnd,
-      cwd: "",
+      cwd: process.cwd || "",
       ts: now,
       captured: true,
     });
@@ -120,6 +120,16 @@ using System;
 using System.Text;
 using System.Runtime.InteropServices;
 public static class CcPanelStartupCapture {
+  [StructLayout(LayoutKind.Sequential)]
+  private struct PROCESS_BASIC_INFORMATION {
+    public IntPtr Reserved1;
+    public IntPtr PebBaseAddress;
+    public IntPtr Reserved2_0;
+    public IntPtr Reserved2_1;
+    public IntPtr UniqueProcessId;
+    public IntPtr Reserved3;
+  }
+
   public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
@@ -127,6 +137,97 @@ public static class CcPanelStartupCapture {
   [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)]
   public static extern int GetClassName(IntPtr hWnd, StringBuilder className, int maxCount);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern IntPtr OpenProcess(uint access, bool inheritHandle, uint processId);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern bool ReadProcessMemory(IntPtr process, IntPtr address, byte[] buffer, int size, out IntPtr bytesRead);
+  [DllImport("kernel32.dll")]
+  private static extern bool CloseHandle(IntPtr handle);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern bool IsWow64Process(IntPtr process, out bool wow64Process);
+  [DllImport("ntdll.dll")]
+  private static extern int NtQueryInformationProcess(
+    IntPtr process, int informationClass, ref PROCESS_BASIC_INFORMATION information,
+    int informationLength, out int returnLength);
+  [DllImport("ntdll.dll", EntryPoint = "NtQueryInformationProcess")]
+  private static extern int NtQueryWow64Information(
+    IntPtr process, int informationClass, out IntPtr information,
+    int informationLength, out int returnLength);
+
+  public static string GetProcessCurrentDirectory(uint processId) {
+    const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    const uint PROCESS_VM_READ = 0x0010;
+    IntPtr process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, false, processId);
+    if (process == IntPtr.Zero) return null;
+
+    try {
+      bool target32Bit = IntPtr.Size == 4;
+      IntPtr pebAddress;
+
+      if (IntPtr.Size == 8) {
+        bool wow64;
+        if (!IsWow64Process(process, out wow64)) return null;
+        target32Bit = wow64;
+        if (wow64) {
+          int returned;
+          if (NtQueryWow64Information(process, 26, out pebAddress, IntPtr.Size, out returned) != 0 ||
+              pebAddress == IntPtr.Zero) return null;
+        } else {
+          PROCESS_BASIC_INFORMATION basic = new PROCESS_BASIC_INFORMATION();
+          int returned;
+          if (NtQueryInformationProcess(process, 0, ref basic, Marshal.SizeOf(basic), out returned) != 0)
+            return null;
+          pebAddress = basic.PebBaseAddress;
+        }
+      } else {
+        PROCESS_BASIC_INFORMATION basic = new PROCESS_BASIC_INFORMATION();
+        int returned;
+        if (NtQueryInformationProcess(process, 0, ref basic, Marshal.SizeOf(basic), out returned) != 0)
+          return null;
+        pebAddress = basic.PebBaseAddress;
+      }
+
+      int processParametersOffset = target32Bit ? 0x10 : 0x20;
+      IntPtr processParameters = ReadPointer(process, Add(pebAddress, processParametersOffset), target32Bit);
+      if (processParameters == IntPtr.Zero) return null;
+
+      int currentDirectoryOffset = target32Bit ? 0x24 : 0x38;
+      IntPtr directoryString = Add(processParameters, currentDirectoryOffset);
+      byte[] lengthBytes = Read(process, directoryString, 2);
+      if (lengthBytes == null) return null;
+      int length = BitConverter.ToUInt16(lengthBytes, 0);
+      if (length <= 0 || length > 65534 || (length & 1) != 0) return null;
+
+      IntPtr buffer = ReadPointer(process, Add(directoryString, target32Bit ? 4 : 8), target32Bit);
+      if (buffer == IntPtr.Zero) return null;
+      byte[] directoryBytes = Read(process, buffer, length);
+      return directoryBytes == null ? null : Encoding.Unicode.GetString(directoryBytes);
+    } catch {
+      return null;
+    } finally {
+      CloseHandle(process);
+    }
+  }
+
+  private static IntPtr Add(IntPtr address, int offset) {
+    return new IntPtr(address.ToInt64() + offset);
+  }
+
+  private static byte[] Read(IntPtr process, IntPtr address, int size) {
+    byte[] buffer = new byte[size];
+    IntPtr bytesRead;
+    if (!ReadProcessMemory(process, address, buffer, size, out bytesRead) || bytesRead.ToInt64() != size)
+      return null;
+    return buffer;
+  }
+
+  private static IntPtr ReadPointer(IntPtr process, IntPtr address, bool target32Bit) {
+    byte[] bytes = Read(process, address, target32Bit ? 4 : 8);
+    if (bytes == null) return IntPtr.Zero;
+    return target32Bit
+      ? new IntPtr(unchecked((long)BitConverter.ToUInt32(bytes, 0)))
+      : new IntPtr(BitConverter.ToInt64(bytes, 0));
+  }
 }
 "@
 $windows = New-Object System.Collections.ArrayList
@@ -158,6 +259,9 @@ $callback = [CcPanelStartupCapture+EnumWindowsProc]{ param($hwnd, $lParam)
       ppid = $_.ParentProcessId
       name = $_.Name
       commandLine = if ($includeCommandLine) { $_.CommandLine } else { $null }
+      cwd = if ($includeCommandLine) {
+        [CcPanelStartupCapture]::GetProcessCurrentDirectory([uint32]$_.ProcessId)
+      } else { $null }
     }
   })
   windows = [object[]]$windows

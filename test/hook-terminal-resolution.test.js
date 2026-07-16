@@ -38,3 +38,23 @@ test("tracks the nearest terminal when shells are nested", () => {
 
   assert.equal(resolveFromSnapshot(snapshot).terminal_pid, cmdPid);
 });
+
+test("ignores the temporary PowerShell process used to run a hook", () => {
+  const hookRunnerPid = process.ppid;
+  const agentPid = 900_020;
+  const terminalPid = 900_021;
+  const snapshot = {
+    procs: new Map([
+      [hookRunnerPid, { name: "powershell.exe", ppid: agentPid, commandLine: "powershell -Command hook" }],
+      [agentPid, { name: "codex.exe", ppid: terminalPid, commandLine: "codex" }],
+      [terminalPid, { name: "cmd.exe", ppid: 0, commandLine: "cmd.exe" }],
+    ]),
+    foreground: null,
+  };
+
+  assert.deepEqual(resolveFromSnapshot(snapshot), {
+    agent_pid: agentPid,
+    terminal_pid: terminalPid,
+    wt_hwnd: null,
+  });
+});

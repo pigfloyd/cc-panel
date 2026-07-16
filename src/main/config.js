@@ -14,6 +14,7 @@ const DEFAULTS = {
   autoLaunch: true,
   terminalDir: null,
   terminalCommand: "claude",
+  terminalExecutable: null,
 };
 
 function readConfig(file) {

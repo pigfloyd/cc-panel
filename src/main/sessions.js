@@ -60,13 +60,10 @@ class SessionStore {
 
     // Startup discovery has no native session ID. Once an agent emits a real
     // hook event, replace its temporary card instead of showing two cards.
-    if (!body.captured && body.agent_pid) {
-      for (const [otherId, other] of this.sessions) {
-        if (otherId.startsWith("captured:") && other.agent_pid === body.agent_pid) {
-          this.sessions.delete(otherId);
-        }
-      }
-    }
+    // Depending on the CLI launcher, startup capture and the hook can identify
+    // different wrapper processes as the agent. Reconcile the real session
+    // against the temporary card using all safe mapping signals.
+    if (!body.captured) this._replaceCapturedSession(s, body);
 
     // Mapping fields are always merged, even from out-of-order events.
     if (body.cwd) {
@@ -148,6 +145,52 @@ class SessionStore {
       if (result.ok) minimized += 1;
     }
     return { ok: true, minimized };
+  }
+
+  _replaceCapturedSession(session, body) {
+    const identity = {
+      client: body.client || session.client,
+      agent_pid: body.agent_pid || session.agent_pid,
+      terminal_pid: body.terminal_pid || session.terminal_pid,
+      wt_hwnd: body.wt_hwnd || session.wt_hwnd,
+      cwd: body.cwd || session.cwd,
+    };
+    const captured = [...this.sessions.entries()].filter(([otherId, other]) =>
+      otherId !== session.id &&
+      otherId.startsWith("captured:") &&
+      sameClient(other.client, identity.client)
+    );
+
+    // Process IDs are the strongest identity signals. HWND and cwd are useful
+    // fallbacks when a hook runner is detached from the original process tree,
+    // but only when exactly one captured card matches: Windows Terminal tabs
+    // can share a window and several agents can run from the same directory.
+    const match = uniqueMatch(captured, (other) => samePid(other.agent_pid, identity.agent_pid)) ||
+      uniqueMatch(captured, (other) => samePid(other.terminal_pid, identity.terminal_pid)) ||
+      uniqueMatch(captured, (other) => sameWindow(other.wt_hwnd, identity.wt_hwnd)) ||
+      uniqueMatch(captured, (other) => sameCwd(other.cwd, identity.cwd));
+    if (!match) return;
+
+    const [otherId, other] = match;
+    // Retain startup-only mapping details if this hook snapshot could not
+    // resolve every field, then remove the temporary card. An agent PID is
+    // process-scoped, so only inherit it while that captured process is still
+    // alive. This matters when Codex is restarted in the same terminal: the
+    // new session must not be polled against the exited Codex process.
+    if (!session.cwd && other.cwd) {
+      session.cwd = other.cwd;
+      session.project = other.project;
+    }
+    if (!session.client && other.client) session.client = other.client;
+    if (!session.agent_pid && other.agent_pid && pidAlive(other.agent_pid)) {
+      session.agent_pid = other.agent_pid;
+    }
+    if (!session.terminal_pid && other.terminal_pid) session.terminal_pid = other.terminal_pid;
+    if (!session.wt_hwnd && other.wt_hwnd) {
+      session.wt_hwnd = other.wt_hwnd;
+      session.windowAlive = other.windowAlive;
+    }
+    this.sessions.delete(otherId);
   }
 
   _setState(s, state, ts) {
@@ -238,6 +281,40 @@ function pidAlive(pid) {
   } catch (err) {
     return err.code === "EPERM"; // access denied means it exists
   }
+}
+
+function samePid(left, right) {
+  const a = Number(left);
+  const b = Number(right);
+  return Number.isInteger(a) && a > 0 && Number.isInteger(b) && b > 0 && a === b;
+}
+
+function sameClient(left, right) {
+  if (!left || !right) return true;
+  return String(left).toLowerCase() === String(right).toLowerCase();
+}
+
+function sameWindow(left, right) {
+  if (!left || !right) return false;
+  return String(left) === String(right);
+}
+
+function sameCwd(left, right) {
+  const a = normalizeCwd(left);
+  const b = normalizeCwd(right);
+  return !!a && !!b && a === b;
+}
+
+function normalizeCwd(value) {
+  if (typeof value !== "string" || !value.trim()) return "";
+  const normalized = path.win32.normalize(value.trim()).toLowerCase();
+  const root = path.win32.parse(normalized).root;
+  return normalized.length > root.length ? normalized.replace(/[\\/]+$/, "") : normalized;
+}
+
+function uniqueMatch(entries, predicate) {
+  const matches = entries.filter(([, session]) => predicate(session));
+  return matches.length === 1 ? matches[0] : null;
 }
 
 module.exports = { SessionStore };

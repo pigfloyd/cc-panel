@@ -26,13 +26,21 @@ const els = {
   settingAlwaysOnTop: document.getElementById("setting-always-on-top"),
   settingSound: document.getElementById("setting-sound"),
   settingAutoLaunch: document.getElementById("setting-auto-launch"),
+  settingTerminalExecutable: document.getElementById("setting-terminal-executable"),
+  settingTerminalExecutableLabel: document.getElementById("setting-terminal-executable-label"),
 };
 
 let sessions = [];
 let permissions = [];
 let permissionSnapshotReady = false;
 let prevStates = new Map(); // id -> state, for flash/sound on transition
-let cfg = { alwaysOnTop: true, sound: false, autoLaunch: true, terminalCommand: "claude" };
+let cfg = {
+  alwaysOnTop: true,
+  sound: false,
+  autoLaunch: true,
+  terminalCommand: "claude",
+  terminalExecutable: null,
+};
 let toastTimer = null;
 
 function beep() {
@@ -266,6 +274,10 @@ function refreshConfigButtons() {
   els.settingAlwaysOnTop.checked = !!cfg.alwaysOnTop;
   els.settingSound.checked = !!cfg.sound;
   els.settingAutoLaunch.checked = !!cfg.autoLaunch;
+  const terminalExecutable = cfg.terminalExecutable || "";
+  const terminalName = terminalExecutable.split(/[\\/]/).pop();
+  els.settingTerminalExecutableLabel.textContent = terminalName || "选择 EXE";
+  els.settingTerminalExecutable.title = terminalExecutable || "选择终端程序";
 }
 
 
@@ -281,12 +293,12 @@ async function openTerminal(terminalCommand) {
     const result = await window.ccPanel.openTerminal(terminalCommand);
     if (!result.ok && result.reason !== "canceled") {
       const message = result.reason === "unsupported_platform"
-        ? "当前系统不支持 Windows Terminal"
-        : "无法打开 Windows Terminal";
+        ? "当前系统不支持启动终端"
+        : "无法打开终端";
       showToast(message + (result.error ? "：" + result.error : ""));
     }
   } catch {
-    showToast("无法打开 Windows Terminal");
+    showToast("无法打开终端");
   } finally {
     els.btnClaudeTerminal.disabled = false;
     els.btnCodexTerminal.disabled = false;
@@ -323,6 +335,22 @@ els.settingAlwaysOnTop.addEventListener("change", async () => {
 els.settingSound.addEventListener("change", async () => {
   cfg = await window.ccPanel.setConfig({ sound: els.settingSound.checked });
   refreshConfigButtons();
+});
+
+els.settingTerminalExecutable.addEventListener("click", async () => {
+  els.settingTerminalExecutable.disabled = true;
+  try {
+    const result = await window.ccPanel.selectTerminalExecutable();
+    if (result.config) cfg = result.config;
+    refreshConfigButtons();
+    if (!result.ok && result.reason === "invalid_executable") {
+      showToast("请选择 EXE 文件");
+    }
+  } catch {
+    showToast("无法选择终端程序");
+  } finally {
+    els.settingTerminalExecutable.disabled = false;
+  }
 });
 
 els.btnSettings.addEventListener("click", () => {

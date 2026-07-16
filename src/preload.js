@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("ccPanel", {
   focusSession: (id) => ipcRenderer.invoke("focus-session", id),
   minimizeAllTerminals: () => ipcRenderer.invoke("minimize-all-terminals"),
   resolvePermission: (reqId, decision) => ipcRenderer.invoke("resolve-permission", reqId, decision),
+  selectTerminalExecutable: () => ipcRenderer.invoke("select-terminal-executable"),
   openTerminal: (command) => ipcRenderer.invoke("open-terminal", command),
   installHooks: () => ipcRenderer.invoke("install-hooks"),
   uninstallHooks: () => ipcRenderer.invoke("uninstall-hooks"),

@@ -5,16 +5,16 @@ const { capturedSessions } = require("../src/main/startup-capture");
 test("captures running Claude and Codex CLIs with their terminal mapping", () => {
   const sessions = capturedSessions([
     { pid: 9, ppid: 20, name: "node.exe", commandLine: "node C:\\node_modules\\@openai\\codex\\bin\\codex.js" },
-    { pid: 10, ppid: 9, name: "codex.exe", commandLine: "codex" },
+    { pid: 10, ppid: 9, name: "codex.exe", commandLine: "codex", cwd: "C:\\work\\codex-project" },
     { pid: 20, ppid: 30, name: "cmd.exe", commandLine: "cmd.exe" },
     { pid: 30, ppid: 0, name: "WindowsTerminal.exe", commandLine: "wt.exe" },
-    { pid: 40, ppid: 50, name: "node.exe", commandLine: "node C:\\Users\\me\\node_modules\\@anthropic-ai\\claude-code\\cli.js" },
+    { pid: 40, ppid: 50, name: "node.exe", commandLine: "node C:\\Users\\me\\node_modules\\@anthropic-ai\\claude-code\\cli.js", cwd: "C:\\work\\claude-project" },
     { pid: 50, ppid: 0, name: "powershell.exe", commandLine: "powershell" },
   ], [{ pid: 30, hwnd: "101" }], 123);
 
   assert.deepEqual(sessions, [
-    { session_id: "captured:codex:10", event: "SessionStart", client: "codex", agent_pid: 10, terminal_pid: 20, wt_hwnd: "101", cwd: "", ts: 123, captured: true },
-    { session_id: "captured:claude:40", event: "SessionStart", client: "claude", agent_pid: 40, terminal_pid: 50, wt_hwnd: null, cwd: "", ts: 123, captured: true },
+    { session_id: "captured:codex:10", event: "SessionStart", client: "codex", agent_pid: 10, terminal_pid: 20, wt_hwnd: "101", cwd: "C:\\work\\codex-project", ts: 123, captured: true },
+    { session_id: "captured:claude:40", event: "SessionStart", client: "claude", agent_pid: 40, terminal_pid: 50, wt_hwnd: null, cwd: "C:\\work\\claude-project", ts: 123, captured: true },
   ]);
 });
 
