@@ -162,6 +162,10 @@ function registerIpc() {
     return store.focus(id, screen.getPrimaryDisplay().workArea);
   });
 
+  ipcMain.handle("minimize-all-terminals", () => {
+    return store.minimizeAll();
+  });
+
   ipcMain.handle("resolve-permission", (_e, reqId, decision) => ({
     ok: permissionStore.resolve(reqId, decision),
   }));

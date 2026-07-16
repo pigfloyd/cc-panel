@@ -90,27 +90,6 @@ body {
   gap: 6px;
 }
 
-.count-badge {
-  min-width: 22px;
-  height: 26px;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 0 8px;
-  color: #625a54;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-1);
-  font-size: 12px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.count-badge:not(:empty) {
-  display: inline-flex;
-}
-
 .icon-btn {
   min-width: 30px;
   height: 26px;
@@ -140,6 +119,11 @@ body {
   transform: translateY(0);
   background: #f2ece7;
   box-shadow: inset 0 1px 2px rgba(61, 47, 38, 0.10);
+}
+
+.icon-btn:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .icon-btn.active {
@@ -360,6 +344,18 @@ body.has-permissions #cards {
   pointer-events: none;
 }
 
+.card::before {
+  content: "";
+  position: absolute;
+  right: 14px;
+  bottom: 7px;
+  left: 14px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
 .card:hover {
   transform: translateY(-2px);
   border-color: var(--border-strong);
@@ -489,6 +485,13 @@ body.has-permissions #cards {
   --bg-c: var(--s-working-bg); --bd-c: var(--s-working-bd);
   --dot-c: var(--s-working-dot); --tx-c: var(--s-working-tx); --ring-c: var(--s-working-ring);
 }
+.card[data-state="working"]::before {
+  background: linear-gradient(90deg, transparent 0%, var(--dot-c) 45%, var(--dot-c) 55%, transparent 100%);
+  background-size: 42% 100%;
+  background-repeat: no-repeat;
+  animation: work-scan 2.4s ease-in-out infinite;
+  opacity: 0.65;
+}
 .card[data-state="needs_input"] {
   --bg-c: var(--s-needs-bg); --bd-c: var(--s-needs-bd);
   --dot-c: var(--s-needs-dot); --tx-c: var(--s-needs-tx); --ring-c: var(--s-needs-ring);
@@ -535,6 +538,11 @@ body.has-permissions #cards {
   50%      { box-shadow: 0 0 0 4px var(--ring-c); }
 }
 
+@keyframes work-scan {
+  0%   { background-position: -42% 0; }
+  100% { background-position: 142% 0; }
+}
+
 @keyframes dot-alert {
   0%, 100% { transform: scale(1);    box-shadow: 0 0 0 0 var(--ring-c); }
   50%      { transform: scale(1.18); box-shadow: 0 0 0 5px var(--ring-c); }
@@ -561,6 +569,7 @@ body.has-permissions #cards {
 
 @media (prefers-reduced-motion: reduce) {
   .card,
+  .card::before,
   .card::after,
   .card .dot {
     animation: none !important;

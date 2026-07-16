@@ -126,6 +126,20 @@ class SessionStore {
     return result;
   }
 
+  minimizeAll() {
+    const handles = new Set();
+    for (const s of this.sessions.values()) {
+      if (s.wt_hwnd && s.windowAlive !== false) handles.add(s.wt_hwnd);
+    }
+
+    let minimized = 0;
+    for (const hwnd of handles) {
+      const result = win32.minimizeWindow(hwnd);
+      if (result.ok) minimized += 1;
+    }
+    return { ok: true, minimized };
+  }
+
   _setState(s, state, ts) {
     s.state = state;
     s.stateSince = ts;

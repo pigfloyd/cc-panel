@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("ccPanel", {
   getState: () => ipcRenderer.invoke("get-state"),
   focusSession: (id) => ipcRenderer.invoke("focus-session", id),
+  minimizeAllTerminals: () => ipcRenderer.invoke("minimize-all-terminals"),
   resolvePermission: (reqId, decision) => ipcRenderer.invoke("resolve-permission", reqId, decision),
   openTerminal: () => ipcRenderer.invoke("open-terminal"),
   installHooks: () => ipcRenderer.invoke("install-hooks"),

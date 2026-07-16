@@ -6,6 +6,7 @@ let user32 = null;
 let fns = null;
 
 const SW_RESTORE = 9;
+const SW_MINIMIZE = 6;
 const SWP_NOSIZE = 0x0001;
 const SWP_SHOWWINDOW = 0x0040;
 const VK_MENU = 0x12;
@@ -48,6 +49,17 @@ function focusWindow(hwndStr, workArea) {
   if (!hwndStr) return { ok: false, reason: "no_hwnd" };
   if (fns) return focusWithKoffi(Number(hwndStr), workArea);
   return focusWithPowerShell(hwndStr, workArea);
+}
+
+function minimizeWindow(hwndStr) {
+  if (!hwndStr) return { ok: false, reason: "no_hwnd" };
+  if (fns) {
+    const hwnd = Number(hwndStr);
+    if (!fns.IsWindow(hwnd)) return { ok: false, reason: "gone" };
+    fns.ShowWindow(hwnd, SW_MINIMIZE);
+    return { ok: true };
+  }
+  return minimizeWithPowerShell(hwndStr);
 }
 
 function focusWithKoffi(hwnd, workArea) {
@@ -119,4 +131,30 @@ function focusWithPowerShell(hwndStr, workArea) {
   return { ok: true, reason: "ps_async" };
 }
 
-module.exports = { available, isWindowAlive, focusWindow };
+function minimizeWithPowerShell(hwndStr) {
+  const hwnd = String(Number(hwndStr));
+  const script = `
+$typeDef = @"
+using System;
+using System.Runtime.InteropServices;
+public class TpanelMinimize {
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+}
+"@
+Add-Type -TypeDefinition $typeDef
+$h = [IntPtr]::new(${hwnd})
+if (-not [TpanelMinimize]::IsWindow($h)) { "gone"; exit }
+[void][TpanelMinimize]::ShowWindow($h, 6)
+"ok"
+`;
+  execFile(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", script],
+    { timeout: 5000, windowsHide: true },
+    () => {}
+  );
+  return { ok: true, reason: "ps_async" };
+}
+
+module.exports = { available, isWindowAlive, focusWindow, minimizeWindow };

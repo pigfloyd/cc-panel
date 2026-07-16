@@ -51,3 +51,26 @@ test("includes the client and state start time in snapshots", () => {
   assert.equal(session.client, "codex");
   assert.equal(session.stateSince, 123_456);
 });
+
+test("minimizes each tracked terminal window once", () => {
+  const store = new SessionStore();
+  store.dispose();
+  const win32 = require("../src/main/win32");
+  const realMinimizeWindow = win32.minimizeWindow;
+  const minimized = [];
+  win32.minimizeWindow = (hwnd) => {
+    minimized.push(hwnd);
+    return { ok: true };
+  };
+
+  try {
+    store.handleEvent({ session_id: "one", event: "SessionStart", wt_hwnd: "101" });
+    store.handleEvent({ session_id: "two", event: "SessionStart", wt_hwnd: "101" });
+    store.handleEvent({ session_id: "three", event: "SessionStart", wt_hwnd: "202" });
+
+    assert.deepEqual(store.minimizeAll(), { ok: true, minimized: 2 });
+    assert.deepEqual(minimized, ["101", "202"]);
+  } finally {
+    win32.minimizeWindow = realMinimizeWindow;
+  }
+});

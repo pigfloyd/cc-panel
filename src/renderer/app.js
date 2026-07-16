@@ -17,9 +17,9 @@ const els = {
   permissions: document.getElementById("permissions"),
   cards: document.getElementById("cards"),
   empty: document.getElementById("empty"),
-  count: document.getElementById("count"),
   toast: document.getElementById("toast"),
   btnTerminal: document.getElementById("btn-terminal"),
+  btnCollapseTerminals: document.getElementById("btn-collapse-terminals"),
   btnSettings: document.getElementById("btn-settings"),
   settingsPanel: document.getElementById("settings-panel"),
   settingAlwaysOnTop: document.getElementById("setting-always-on-top"),
@@ -73,7 +73,6 @@ function refreshStateAges(now = Date.now()) {
 function render() {
   const sorted = orderSessions(sessions);
 
-  els.count.textContent = sorted.length ? String(sorted.length) : "";
   refreshEmptyState();
   els.cards.replaceChildren(...sorted.map(buildCard));
 }
@@ -281,6 +280,24 @@ els.btnTerminal.addEventListener("click", async () => {
       ? "当前系统不支持 Windows Terminal"
       : "无法打开 Windows Terminal";
     showToast(message + (result.error ? "：" + result.error : ""));
+  }
+});
+
+els.btnCollapseTerminals.addEventListener("click", async () => {
+  els.btnCollapseTerminals.disabled = true;
+  try {
+    const result = await window.ccPanel.minimizeAllTerminals();
+    if (!result.ok) {
+      showToast("无法收起终端窗口");
+    } else if (result.minimized) {
+      showToast(`已收起 ${result.minimized} 个终端窗口`);
+    } else {
+      showToast("没有可收起的终端窗口");
+    }
+  } catch {
+    showToast("无法收起终端窗口");
+  } finally {
+    els.btnCollapseTerminals.disabled = false;
   }
 });
 
