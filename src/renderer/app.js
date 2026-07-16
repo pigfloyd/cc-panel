@@ -22,17 +22,17 @@ const els = {
   btnCollapseTerminals: document.getElementById("btn-collapse-terminals"),
   btnSettings: document.getElementById("btn-settings"),
   settingsPanel: document.getElementById("settings-panel"),
+  terminalCommand: document.getElementById("terminal-command"),
   settingAlwaysOnTop: document.getElementById("setting-always-on-top"),
   settingSound: document.getElementById("setting-sound"),
   settingAutoLaunch: document.getElementById("setting-auto-launch"),
-  settingTerminalCommand: document.getElementById("setting-terminal-command"),
 };
 
 let sessions = [];
 let permissions = [];
 let permissionSnapshotReady = false;
 let prevStates = new Map(); // id -> state, for flash/sound on transition
-let cfg = { alwaysOnTop: true, sound: false, autoLaunch: true, terminalCommand: "ask" };
+let cfg = { alwaysOnTop: true, sound: false, autoLaunch: true, terminalCommand: "claude" };
 let toastTimer = null;
 
 function beep() {
@@ -266,7 +266,7 @@ function refreshConfigButtons() {
   els.settingAlwaysOnTop.checked = !!cfg.alwaysOnTop;
   els.settingSound.checked = !!cfg.sound;
   els.settingAutoLaunch.checked = !!cfg.autoLaunch;
-  els.settingTerminalCommand.value = cfg.terminalCommand || "ask";
+  els.terminalCommand.value = cfg.terminalCommand || "claude";
 }
 
 
@@ -276,16 +276,29 @@ function setSettingsOpen(open) {
 }
 
 async function openTerminal() {
-  const result = await window.ccPanel.openTerminal();
-  if (!result.ok && result.reason !== "canceled") {
-    const message = result.reason === "unsupported_platform"
-      ? "当前系统不支持 Windows Terminal"
-      : "无法打开 Windows Terminal";
-    showToast(message + (result.error ? "：" + result.error : ""));
+  els.btnTerminal.disabled = true;
+  els.terminalCommand.disabled = true;
+  try {
+    const result = await window.ccPanel.openTerminal(els.terminalCommand.value);
+    if (!result.ok && result.reason !== "canceled") {
+      const message = result.reason === "unsupported_platform"
+        ? "当前系统不支持 Windows Terminal"
+        : "无法打开 Windows Terminal";
+      showToast(message + (result.error ? "：" + result.error : ""));
+    }
+  } catch {
+    showToast("无法打开 Windows Terminal");
+  } finally {
+    els.btnTerminal.disabled = false;
+    els.terminalCommand.disabled = false;
   }
 }
 
 els.btnTerminal.addEventListener("click", openTerminal);
+els.terminalCommand.addEventListener("change", async () => {
+  cfg = await window.ccPanel.setConfig({ terminalCommand: els.terminalCommand.value });
+  refreshConfigButtons();
+});
 
 els.btnCollapseTerminals.addEventListener("click", async () => {
   els.btnCollapseTerminals.disabled = true;
@@ -326,11 +339,6 @@ els.settingAutoLaunch.addEventListener("change", async () => {
   if (cfg.autoLaunchError) {
     showToast("开机自启动设置失败：" + cfg.autoLaunchError);
   }
-});
-
-els.settingTerminalCommand.addEventListener("change", async () => {
-  cfg = await window.ccPanel.setConfig({ terminalCommand: els.settingTerminalCommand.value });
-  refreshConfigButtons();
 });
 
 document.addEventListener("click", (event) => {

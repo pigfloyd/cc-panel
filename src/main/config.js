@@ -13,7 +13,7 @@ const DEFAULTS = {
   sound: false,
   autoLaunch: true,
   terminalDir: null,
-  terminalCommand: "ask",
+  terminalCommand: "claude",
 };
 
 function readConfig(file) {

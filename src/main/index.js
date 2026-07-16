@@ -16,13 +16,10 @@ let saveBoundsTimer = null;
 let hookInstallStatus = null;
 let autoLaunchStatus = null;
 
-const TERMINAL_COMMANDS = new Set(["ask", "shell", "codex", "claude"]);
+const TERMINAL_COMMANDS = new Set(["codex", "claude"]);
 
 function normalizeTerminalCommand(value) {
-  // "none" was used by the first implementation and silently opened a shell.
-  // Treat it as unset so existing users get an explicit choice next time.
-  if (value === "none") return "ask";
-  return TERMINAL_COMMANDS.has(value) ? value : "ask";
+  return TERMINAL_COMMANDS.has(value) ? value : "claude";
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -180,8 +177,11 @@ function registerIpc() {
     ok: permissionStore.resolve(reqId, decision),
   }));
 
-  ipcMain.handle("open-terminal", async () => {
+  ipcMain.handle("open-terminal", async (_event, terminalCommand) => {
     if (process.platform !== "win32") return { ok: false, reason: "unsupported_platform" };
+    if (!TERMINAL_COMMANDS.has(terminalCommand)) {
+      return { ok: false, reason: "invalid_command" };
+    }
 
     const selection = await dialog.showOpenDialog(win, {
       title: "选择 Windows Terminal 启动目录",
@@ -193,24 +193,6 @@ function registerIpc() {
     }
 
     const cwd = selection.filePaths[0];
-    let terminalCommand = normalizeTerminalCommand(cfg.terminalCommand);
-    if (terminalCommand === "ask") {
-      const commandSelection = await dialog.showMessageBox(win, {
-        type: "question",
-        title: "新建终端",
-        message: "选择新终端启动后要运行的命令",
-        detail: cwd,
-        buttons: ["Codex", "Claude", "普通 Shell", "取消"],
-        defaultId: 0,
-        cancelId: 3,
-        noLink: true,
-      });
-      if (commandSelection.response === 3) {
-        return { ok: false, reason: "canceled" };
-      }
-      terminalCommand = ["codex", "claude", "shell"][commandSelection.response];
-      cfg.terminalCommand = "ask";
-    }
     cfg.terminalDir = cwd;
     config.save(cfg);
 
@@ -220,9 +202,7 @@ function registerIpc() {
         // npm-installed agent CLIs are usually .cmd/.ps1 shims on Windows.
         // Run them through cmd.exe so Windows Terminal does not try to launch
         // the shim as a native executable and silently fall back to the shell.
-        if (terminalCommand === "codex" || terminalCommand === "claude") {
-          args.push("cmd.exe", "/d", "/k", terminalCommand);
-        }
+        args.push("cmd.exe", "/d", "/k", terminalCommand);
         const child = spawn("wt.exe", args, {
           detached: true,
           stdio: "ignore",

@@ -16,7 +16,17 @@
   <nav class="bottom-toolbar" aria-label="终端操作">
     <button id="btn-settings" class="icon-btn" type="button" title="设置">⚙</button>
     <button id="btn-collapse-terminals" class="toolbar-btn toolbar-btn-secondary" type="button">收起所有终端窗口</button>
-    <button id="btn-terminal" class="toolbar-btn toolbar-btn-primary" type="button">新建终端</button>
+    <div class="new-terminal-control">
+      <label class="visually-hidden" for="terminal-command">终端工具</label>
+      <div class="terminal-command-select">
+        <select id="terminal-command" title="选择终端工具">
+          <option value="claude">Claude</option>
+          <option value="codex">Codex</option>
+        </select>
+        <span aria-hidden="true">▾</span>
+      </div>
+      <button id="btn-terminal" class="toolbar-btn toolbar-btn-primary" type="button">新建终端</button>
+    </div>
   </nav>
   <section id="settings-panel" class="settings-panel hidden" aria-label="设置">
     <label class="setting-row" for="setting-always-on-top">
@@ -30,15 +40,6 @@
     <label class="setting-row" for="setting-auto-launch">
       <span>开机自启动</span>
       <input id="setting-auto-launch" type="checkbox" />
-    </label>
-    <label class="setting-row" for="setting-terminal-command">
-      <span>新终端启动</span>
-      <select id="setting-terminal-command">
-        <option value="ask">每次询问</option>
-        <option value="shell">普通 Shell</option>
-        <option value="codex">Codex</option>
-        <option value="claude">Claude</option>
-      </select>
     </label>
   </section>
   <div id="toast" class="toast hidden"></div>
