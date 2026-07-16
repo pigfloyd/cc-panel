@@ -32,10 +32,13 @@ function buildLaunchSpec(terminalExecutable, cwd, terminalCommand) {
     case "windowsterminal.exe":
       return {
         executable,
+        // A card can focus a Windows Terminal top-level window, but Windows
+        // does not expose a stable tab handle. Keep each agent in its own
+        // window so two session cards never resolve to the same active tab.
         // npm-installed agent CLIs are commonly .cmd/.ps1 shims. Running the
         // command through cmd keeps Windows Terminal from treating the shim as
         // a native executable and falling back to an empty shell.
-        args: ["new-tab", "-d", cwd, "cmd.exe", "/d", "/k", terminalCommand],
+        args: ["-w", "new", "new-tab", "-d", cwd, "cmd.exe", "/d", "/k", terminalCommand],
         cwd,
       };
     default:

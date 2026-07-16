@@ -12,11 +12,19 @@ test("normalizes the selected terminal executable", () => {
   assert.equal(normalizeTerminalExecutable(undefined), null);
 });
 
-test("uses Windows Terminal when no executable has been selected", () => {
+test("uses a dedicated Windows Terminal window when no executable has been selected", () => {
   assert.deepEqual(buildLaunchSpec(null, "C:\\work", "claude"), {
     executable: "wt.exe",
-    args: ["new-tab", "-d", "C:\\work", "cmd.exe", "/d", "/k", "claude"],
+    args: ["-w", "new", "new-tab", "-d", "C:\\work", "cmd.exe", "/d", "/k", "claude"],
     cwd: "C:\\work",
+  });
+});
+
+test("uses a dedicated window for a selected Windows Terminal executable", () => {
+  assert.deepEqual(buildLaunchSpec("C:\\Apps\\WindowsTerminal.exe", "C:\\repo", "codex"), {
+    executable: "C:\\Apps\\WindowsTerminal.exe",
+    args: ["-w", "new", "new-tab", "-d", "C:\\repo", "cmd.exe", "/d", "/k", "codex"],
+    cwd: "C:\\repo",
   });
 });
 

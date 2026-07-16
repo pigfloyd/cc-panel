@@ -12,6 +12,12 @@ const {
   normalizeTerminalExecutable,
   buildLaunchSpec,
 } = require("./terminal-launcher");
+const { detectTerminalApps } = require("./terminal-detector");
+const {
+  MIN_WINDOW_WIDTH,
+  MIN_WINDOW_HEIGHT,
+  ensureVisibleBounds,
+} = require("./window-bounds");
 
 let win = null;
 let store = null;
@@ -59,9 +65,11 @@ async function main() {
 
   hookInstallStatus = installHooks();
   autoLaunchStatus = setAutoLaunch(cfg.autoLaunch);
-  await captureRunningSessions(store);
   createWindow();
   registerIpc();
+  void captureRunningSessions(store).catch((err) => {
+    console.error("[cc-panel] startup capture failed:", String(err.message || err));
+  });
 
   app.on("window-all-closed", () => {
     server.clearRuntime();
@@ -115,23 +123,23 @@ function configSnapshot(extra = {}) {
     ...extra,
   };
 }
-function defaultBounds() {
+function defaultBounds(displays = screen.getAllDisplays()) {
   // Prefer the secondary display; dock to its right edge.
-  const displays = screen.getAllDisplays();
   const primary = screen.getPrimaryDisplay();
   const secondary = displays.find((d) => d.id !== primary.id);
   const wa = (secondary || primary).workArea;
-  const width = 380;
+  const width = Math.min(380, wa.width);
   const height = Math.min(940, wa.height);
   return { x: wa.x + wa.width - width, y: wa.y, width, height };
 }
 
 function createWindow() {
-  const bounds = cfg.bounds || defaultBounds();
+  const displays = screen.getAllDisplays();
+  const bounds = ensureVisibleBounds(cfg.bounds, displays, defaultBounds(displays));
   win = new BrowserWindow({
     ...bounds,
-    minWidth: 300,
-    minHeight: 400,
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     backgroundColor: "#f7f5f2",
     ...(process.platform === "win32" ? {
       backgroundMaterial: "mica",
@@ -183,6 +191,21 @@ function registerIpc() {
   ipcMain.handle("resolve-permission", (_e, reqId, decision) => ({
     ok: permissionStore.resolve(reqId, decision),
   }));
+
+  ipcMain.handle("list-terminal-apps", () => ({
+    ok: true,
+    terminals: detectTerminalApps(),
+  }));
+
+  ipcMain.handle("set-terminal-executable", (_e, executable) => {
+    const normalized = normalizeTerminalExecutable(executable);
+    if (normalized && path.extname(normalized).toLowerCase() !== ".exe") {
+      return { ok: false, reason: "invalid_executable", config: configSnapshot() };
+    }
+    cfg.terminalExecutable = normalized;
+    config.save(cfg);
+    return { ok: true, config: configSnapshot() };
+  });
 
   ipcMain.handle("select-terminal-executable", async () => {
     const current = normalizeTerminalExecutable(cfg.terminalExecutable);

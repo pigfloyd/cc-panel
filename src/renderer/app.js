@@ -27,7 +27,6 @@ const els = {
   settingSound: document.getElementById("setting-sound"),
   settingAutoLaunch: document.getElementById("setting-auto-launch"),
   settingTerminalExecutable: document.getElementById("setting-terminal-executable"),
-  settingTerminalExecutableLabel: document.getElementById("setting-terminal-executable-label"),
 };
 
 let sessions = [];
@@ -42,6 +41,9 @@ let cfg = {
   terminalExecutable: null,
 };
 let toastTimer = null;
+let terminalApps = [];
+let terminalScanPromise = null;
+const BROWSE_TERMINAL_VALUE = "__browse__";
 
 function beep() {
   const ctx = new AudioContext();
@@ -158,7 +160,8 @@ function permissionButton(label, decision) {
 }
 
 function buildCard(s) {
-  const card = document.createElement("div");
+  const card = document.createElement("button");
+  card.type = "button";
   card.className = "card" + (s.hasWindow ? "" : " no-window");
   card.dataset.state = s.state;
   card.dataset.id = s.id;
@@ -274,16 +277,56 @@ function refreshConfigButtons() {
   els.settingAlwaysOnTop.checked = !!cfg.alwaysOnTop;
   els.settingSound.checked = !!cfg.sound;
   els.settingAutoLaunch.checked = !!cfg.autoLaunch;
-  const terminalExecutable = cfg.terminalExecutable || "";
-  const terminalName = terminalExecutable.split(/[\\/]/).pop();
-  els.settingTerminalExecutableLabel.textContent = terminalName || "选择 EXE";
-  els.settingTerminalExecutable.title = terminalExecutable || "选择终端程序";
+  renderTerminalOptions();
 }
 
+function renderTerminalOptions() {
+  const current = cfg.terminalExecutable || "";
+  const currentKey = current.toLowerCase();
+  const options = [];
+  options.push(new Option("默认（Windows Terminal）", ""));
+
+  const matchedTerminal = terminalApps.find(
+    (terminal) => terminal.executable.toLowerCase() === currentKey,
+  );
+  if (current && !matchedTerminal) {
+    const filename = current.split(/[\\/]/).pop();
+    options.push(new Option(`自定义：${filename}`, current));
+  }
+  for (const terminal of terminalApps) {
+    options.push(new Option(terminal.name, terminal.executable));
+  }
+  options.push(new Option("浏览其他 EXE...", BROWSE_TERMINAL_VALUE));
+
+  els.settingTerminalExecutable.replaceChildren(...options);
+  els.settingTerminalExecutable.value = matchedTerminal ? matchedTerminal.executable : current;
+  els.settingTerminalExecutable.title = current || "默认使用 Windows Terminal";
+}
+
+async function scanTerminalApps() {
+  if (terminalScanPromise) return terminalScanPromise;
+  els.settingTerminalExecutable.disabled = true;
+  terminalScanPromise = (async () => {
+    try {
+      const result = await window.ccPanel.listTerminalApps();
+      terminalApps = result && result.ok && Array.isArray(result.terminals)
+        ? result.terminals
+        : [];
+    } catch {
+      terminalApps = [];
+    } finally {
+      terminalScanPromise = null;
+      els.settingTerminalExecutable.disabled = false;
+      renderTerminalOptions();
+    }
+  })();
+  return terminalScanPromise;
+}
 
 function setSettingsOpen(open) {
   els.settingsPanel.classList.toggle("hidden", !open);
   refreshConfigButtons();
+  if (open) void scanTerminalApps();
 }
 
 async function openTerminal(terminalCommand) {
@@ -337,10 +380,13 @@ els.settingSound.addEventListener("change", async () => {
   refreshConfigButtons();
 });
 
-els.settingTerminalExecutable.addEventListener("click", async () => {
+els.settingTerminalExecutable.addEventListener("change", async () => {
   els.settingTerminalExecutable.disabled = true;
   try {
-    const result = await window.ccPanel.selectTerminalExecutable();
+    const selected = els.settingTerminalExecutable.value;
+    const result = selected === BROWSE_TERMINAL_VALUE
+      ? await window.ccPanel.selectTerminalExecutable()
+      : await window.ccPanel.setTerminalExecutable(selected || null);
     if (result.config) cfg = result.config;
     refreshConfigButtons();
     if (!result.ok && result.reason === "invalid_executable") {
@@ -382,6 +428,7 @@ setInterval(() => refreshStateAges(), 1000);
   const state = await window.ccPanel.getState();
   cfg = state.config;
   refreshConfigButtons();
+  await scanTerminalApps();
   if (state.hookInstallStatus && !state.hookInstallStatus.ok) {
     showToast("hooks 自动安装失败：" + (state.hookInstallStatus.error || "未知错误"));
   }

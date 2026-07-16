@@ -167,8 +167,13 @@ class SessionStore {
     // can share a window and several agents can run from the same directory.
     const match = uniqueMatch(captured, (other) => samePid(other.agent_pid, identity.agent_pid)) ||
       uniqueMatch(captured, (other) => samePid(other.terminal_pid, identity.terminal_pid)) ||
-      uniqueMatch(captured, (other) => sameWindow(other.wt_hwnd, identity.wt_hwnd)) ||
-      uniqueMatch(captured, (other) => sameCwd(other.cwd, identity.cwd));
+      uniqueMatch(captured, (other) =>
+        sameWindow(other.wt_hwnd, identity.wt_hwnd) &&
+        identitiesDoNotConflict(other, identity, ["agent_pid", "terminal_pid"])
+      ) ||
+      uniqueMatch(captured, (other) =>
+        sameCwd(other.cwd, identity.cwd) && identitiesDoNotConflict(other, identity)
+      );
     if (!match) return;
 
     const [otherId, other] = match;
@@ -310,6 +315,14 @@ function normalizeCwd(value) {
   const normalized = path.win32.normalize(value.trim()).toLowerCase();
   const root = path.win32.parse(normalized).root;
   return normalized.length > root.length ? normalized.replace(/[\\/]+$/, "") : normalized;
+}
+
+function identitiesDoNotConflict(left, right, fields = ["agent_pid", "terminal_pid", "wt_hwnd"]) {
+  return fields.every((field) => {
+    if (!left[field] || !right[field]) return true;
+    if (field === "wt_hwnd") return sameWindow(left[field], right[field]);
+    return samePid(left[field], right[field]);
+  });
 }
 
 function uniqueMatch(entries, predicate) {

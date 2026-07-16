@@ -262,6 +262,43 @@ test("does not collapse ambiguous cards that share a window and cwd", () => {
   }
 });
 
+test("does not replace the remaining captured card when another Codex terminal restarts", () => {
+  const store = new SessionStore();
+  try {
+    // A has already exited and its captured card has expired. B is still
+    // running in the same project and Windows Terminal window.
+    store.handleEvent({
+      session_id: "captured:codex:42",
+      event: "SessionStart",
+      client: "codex",
+      agent_pid: 42,
+      terminal_pid: 202,
+      wt_hwnd: "101",
+      cwd: "C:\\work\\shared",
+      captured: true,
+    });
+
+    // Restarted A has a new process and shell. Its real hook must not consume
+    // B merely because B is now the only captured card with this HWND/cwd.
+    store.handleEvent({
+      session_id: "codex:restarted-a",
+      event: "UserPromptSubmit",
+      client: "codex",
+      agent_pid: 43,
+      terminal_pid: 201,
+      wt_hwnd: "101",
+      cwd: "C:\\work\\shared",
+    });
+
+    assert.deepEqual(
+      store.snapshot().map((session) => session.id),
+      ["captured:codex:42", "codex:restarted-a"]
+    );
+  } finally {
+    store.dispose();
+  }
+});
+
 test("does not replace another client's captured card on a shared terminal PID", () => {
   const store = new SessionStore();
   try {
