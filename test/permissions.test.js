@@ -109,6 +109,7 @@ test("builds a directly executable Codex Windows hook command", () => {
     /^\$env:ELECTRON_RUN_AS_NODE="1"; & "[^"]+electron\.exe" "[^"]+cc-panel-hook\.js" SessionStart codex$/i
   );
   assert.doesNotMatch(hook.commandWindows, /(?:cmd\s+\/d\s+\/c|\bset\s+"ELECTRON_RUN_AS_NODE)/i);
+  assert.equal(hook.statusMessage, undefined);
 });
 
 test("round-trips permission decisions through the HTTP boundary", async () => {

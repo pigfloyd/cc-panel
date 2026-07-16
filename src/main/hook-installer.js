@@ -104,7 +104,6 @@ function codexEntry(event) {
         // avoids global Node/NVM version and path drift.
         commandWindows: windowsHookCommand(event, "codex", "powershell"),
         timeout: 5,
-        statusMessage: "Updating cc-panel",
       },
     ],
   };

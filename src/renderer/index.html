@@ -17,15 +17,8 @@
     <button id="btn-settings" class="icon-btn" type="button" title="设置">⚙</button>
     <button id="btn-collapse-terminals" class="toolbar-btn toolbar-btn-secondary" type="button">收起所有终端窗口</button>
     <div class="new-terminal-control">
-      <label class="visually-hidden" for="terminal-command">终端工具</label>
-      <div class="terminal-command-select">
-        <select id="terminal-command" title="选择终端工具">
-          <option value="claude">Claude</option>
-          <option value="codex">Codex</option>
-        </select>
-        <span aria-hidden="true">▾</span>
-      </div>
-      <button id="btn-terminal" class="toolbar-btn toolbar-btn-primary" type="button">新建终端</button>
+      <button id="btn-claude-terminal" class="toolbar-btn toolbar-btn-primary" type="button">Claude Code</button>
+      <button id="btn-codex-terminal" class="toolbar-btn toolbar-btn-primary" type="button">Codex CLI</button>
     </div>
   </nav>
   <section id="settings-panel" class="settings-panel hidden" aria-label="设置">

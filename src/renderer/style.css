@@ -617,72 +617,23 @@ body.has-permissions #cards {
 .new-terminal-control {
   min-width: 0;
   display: grid;
-  grid-template-columns: 46% 54%;
+  grid-template-columns: 1fr 1fr;
   height: 34px;
-}
-
-.terminal-command-select {
-  position: relative;
-  min-width: 0;
-  height: 34px;
-}
-
-.terminal-command-select select {
-  width: 100%;
-  min-width: 0;
-  height: 34px;
-  padding: 0 10px 0 0;
-  color: #fff;
-  background: var(--accent);
-  border: 1px solid #c86649;
-  border-right-color: rgba(255, 255, 255, 0.36);
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 700;
-  text-align: center;
-  text-align-last: center;
-  appearance: none;
-  cursor: pointer;
-}
-
-.terminal-command-select > span {
-  position: absolute;
-  top: 50%;
-  left: calc(50% + 18px);
-  color: #fff;
-  font-size: 10px;
-  line-height: 1;
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-}
-
-.terminal-command-select select option {
-  color: var(--text);
-  background: #fff;
-}
-
-.new-terminal-control:hover .terminal-command-select select {
-  background: #c86649;
-}
-
-.terminal-command-select select:focus-visible {
-  position: relative;
-  outline: 2px solid rgba(217, 119, 87, 0.28);
-  outline-offset: -2px;
-}
-
-.terminal-command-select select:disabled {
-  cursor: wait;
-  opacity: 0.55;
 }
 
 .new-terminal-control .toolbar-btn {
   min-width: 0;
-  border-left: 0;
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   font-size: 11px;
   white-space: nowrap;
+}
+
+.new-terminal-control .toolbar-btn:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.new-terminal-control .toolbar-btn + .toolbar-btn {
+  border-left-color: rgba(255, 255, 255, 0.36);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 .new-terminal-control .toolbar-btn:hover,

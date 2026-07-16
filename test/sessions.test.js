@@ -52,6 +52,29 @@ test("includes the client and state start time in snapshots", () => {
   assert.equal(session.stateSince, 123_456);
 });
 
+test("replaces a startup-captured card when its real hook session arrives", () => {
+  const store = new SessionStore();
+  try {
+    store.handleEvent({
+      session_id: "captured:codex:42",
+      event: "SessionStart",
+      client: "codex",
+      agent_pid: 42,
+      captured: true,
+    });
+    store.handleEvent({
+      session_id: "codex:real-session",
+      event: "SessionStart",
+      client: "codex",
+      agent_pid: 42,
+    });
+
+    assert.deepEqual(store.snapshot().map((session) => session.id), ["codex:real-session"]);
+  } finally {
+    store.dispose();
+  }
+});
+
 test("removes a completed session when its mapped terminal window closes", () => {
   const store = new SessionStore();
   store.dispose();

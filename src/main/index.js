@@ -7,6 +7,7 @@ const server = require("./server");
 const installer = require("./hook-installer");
 const { SessionStore } = require("./sessions");
 const { PermissionStore } = require("./permissions");
+const { captureRunningSessions } = require("./startup-capture");
 
 let win = null;
 let store = null;
@@ -54,6 +55,7 @@ async function main() {
 
   hookInstallStatus = installHooks();
   autoLaunchStatus = setAutoLaunch(cfg.autoLaunch);
+  await captureRunningSessions(store);
   createWindow();
   registerIpc();
 

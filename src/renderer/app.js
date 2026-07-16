@@ -18,11 +18,11 @@ const els = {
   cards: document.getElementById("cards"),
   empty: document.getElementById("empty"),
   toast: document.getElementById("toast"),
-  btnTerminal: document.getElementById("btn-terminal"),
+  btnClaudeTerminal: document.getElementById("btn-claude-terminal"),
+  btnCodexTerminal: document.getElementById("btn-codex-terminal"),
   btnCollapseTerminals: document.getElementById("btn-collapse-terminals"),
   btnSettings: document.getElementById("btn-settings"),
   settingsPanel: document.getElementById("settings-panel"),
-  terminalCommand: document.getElementById("terminal-command"),
   settingAlwaysOnTop: document.getElementById("setting-always-on-top"),
   settingSound: document.getElementById("setting-sound"),
   settingAutoLaunch: document.getElementById("setting-auto-launch"),
@@ -266,7 +266,6 @@ function refreshConfigButtons() {
   els.settingAlwaysOnTop.checked = !!cfg.alwaysOnTop;
   els.settingSound.checked = !!cfg.sound;
   els.settingAutoLaunch.checked = !!cfg.autoLaunch;
-  els.terminalCommand.value = cfg.terminalCommand || "claude";
 }
 
 
@@ -275,11 +274,11 @@ function setSettingsOpen(open) {
   refreshConfigButtons();
 }
 
-async function openTerminal() {
-  els.btnTerminal.disabled = true;
-  els.terminalCommand.disabled = true;
+async function openTerminal(terminalCommand) {
+  els.btnClaudeTerminal.disabled = true;
+  els.btnCodexTerminal.disabled = true;
   try {
-    const result = await window.ccPanel.openTerminal(els.terminalCommand.value);
+    const result = await window.ccPanel.openTerminal(terminalCommand);
     if (!result.ok && result.reason !== "canceled") {
       const message = result.reason === "unsupported_platform"
         ? "当前系统不支持 Windows Terminal"
@@ -289,16 +288,13 @@ async function openTerminal() {
   } catch {
     showToast("无法打开 Windows Terminal");
   } finally {
-    els.btnTerminal.disabled = false;
-    els.terminalCommand.disabled = false;
+    els.btnClaudeTerminal.disabled = false;
+    els.btnCodexTerminal.disabled = false;
   }
 }
 
-els.btnTerminal.addEventListener("click", openTerminal);
-els.terminalCommand.addEventListener("change", async () => {
-  cfg = await window.ccPanel.setConfig({ terminalCommand: els.terminalCommand.value });
-  refreshConfigButtons();
-});
+els.btnClaudeTerminal.addEventListener("click", () => openTerminal("claude"));
+els.btnCodexTerminal.addEventListener("click", () => openTerminal("codex"));
 
 els.btnCollapseTerminals.addEventListener("click", async () => {
   els.btnCollapseTerminals.disabled = true;

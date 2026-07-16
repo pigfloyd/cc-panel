@@ -58,6 +58,16 @@ class SessionStore {
       this.sessions.set(id, s);
     }
 
+    // Startup discovery has no native session ID. Once an agent emits a real
+    // hook event, replace its temporary card instead of showing two cards.
+    if (!body.captured && body.agent_pid) {
+      for (const [otherId, other] of this.sessions) {
+        if (otherId.startsWith("captured:") && other.agent_pid === body.agent_pid) {
+          this.sessions.delete(otherId);
+        }
+      }
+    }
+
     // Mapping fields are always merged, even from out-of-order events.
     if (body.cwd) {
       s.cwd = body.cwd;
