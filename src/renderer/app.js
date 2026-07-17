@@ -8,6 +8,12 @@ const STATE_LABEL = {
   ended: "已结束",
   dead: "进程已退出",
 };
+const STATE_SIGNAL_COLOR = {
+  working: "orange",
+  needs_input: "red",
+  done: "green",
+  error: "red",
+};
 // transitions worth interrupting the user for
 const NOTIFY_STATES = new Set(["needs_input", "done", "error"]);
 const orderSessions = createStableSessionOrder();
@@ -159,6 +165,28 @@ function permissionButton(label, decision) {
   return button;
 }
 
+function buildTrafficLight(state) {
+  const label = STATE_LABEL[state] || state;
+  const color = STATE_SIGNAL_COLOR[state];
+  const trafficLight = document.createElement("span");
+  trafficLight.className = "traffic-light";
+  trafficLight.title = label;
+  trafficLight.setAttribute("role", "img");
+  trafficLight.setAttribute("aria-label", `状态：${label}`);
+
+  const lens = document.createElement("span");
+  lens.className = color
+    ? `signal-lens signal-${color} is-lit`
+    : "signal-lens signal-clear";
+  lens.setAttribute("aria-hidden", "true");
+  const core = document.createElement("span");
+  core.className = "signal-core";
+  lens.append(core);
+  trafficLight.append(lens);
+
+  return trafficLight;
+}
+
 function buildCard(s) {
   const card = document.createElement("button");
   card.type = "button";
@@ -168,13 +196,11 @@ function buildCard(s) {
 
   const head = document.createElement("div");
   head.className = "head";
-  const dot = document.createElement("span");
-  dot.className = "dot";
   const project = document.createElement("span");
   project.className = "project";
   project.textContent = s.project;
   project.title = s.cwd;
-  head.append(dot, project);
+  head.append(project);
 
   const meta = document.createElement("div");
   meta.className = "meta";
@@ -186,10 +212,7 @@ function buildCard(s) {
     meta.append(tag);
   }
 
-  const status = document.createElement("span");
-  status.className = "state-label";
-  status.textContent = STATE_LABEL[s.state] || s.state;
-  meta.append(status);
+  meta.append(buildTrafficLight(s.state));
 
   card.append(head, meta);
 

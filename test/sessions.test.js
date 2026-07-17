@@ -1,8 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { SessionStore } = require("../src/main/sessions");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { SessionStore, transcriptInterruptionTimestamp } = require("../src/main/sessions");
 
-test("removes a dead session after the terminal-state linger period", () => {
+test("removes a session immediately when its agent process exits", () => {
   const realNow = Date.now;
   const realKill = process.kill;
   let now = 1_000_000;
@@ -25,15 +28,21 @@ test("removes a dead session after the terminal-state linger period", () => {
     });
 
     store._poll();
-    assert.equal(store.snapshot()[0].state, "dead");
-
-    now += 15_001;
-    store._poll();
     assert.deepEqual(store.snapshot(), []);
   } finally {
     Date.now = realNow;
     process.kill = realKill;
   }
+});
+
+test("removes a session immediately on SessionEnd", () => {
+  const store = new SessionStore();
+  store.dispose();
+
+  store.handleEvent({ session_id: "ended-session", event: "SessionStart" });
+  store.handleEvent({ session_id: "ended-session", event: "SessionEnd" });
+
+  assert.deepEqual(store.snapshot(), []);
 });
 
 test("includes the client and state start time in snapshots", () => {
@@ -50,6 +59,135 @@ test("includes the client and state start time in snapshots", () => {
   const [session] = store.snapshot();
   assert.equal(session.client, "codex");
   assert.equal(session.stateSince, 123_456);
+});
+
+test("returns Claude sessions to idle and Codex sessions to done when a turn stops", () => {
+  for (const [client, expectedState] of [["claude", "idle"], ["codex", "done"]]) {
+    const store = new SessionStore();
+    store.dispose();
+
+    store.handleEvent({
+      session_id: `${client}:turn`,
+      event: "UserPromptSubmit",
+      client,
+      prompt_line: "run the tests",
+      ts: 100,
+    });
+    store.handleEvent({
+      session_id: `${client}:turn`,
+      event: "PreToolUse",
+      client,
+      tool_name: "Bash",
+      ts: 200,
+    });
+    store.handleEvent({
+      session_id: `${client}:turn`,
+      event: "Stop",
+      client,
+      ts: 300,
+    });
+
+    let [session] = store.snapshot();
+    assert.equal(session.state, expectedState);
+    assert.equal(session.stateSince, 300);
+    assert.equal(session.currentTool, null);
+    assert.equal(session.message, null);
+
+    store.handleEvent({
+      session_id: `${client}:turn`,
+      event: "UserPromptSubmit",
+      client,
+      ts: 400,
+    });
+    [session] = store.snapshot();
+    assert.equal(session.state, "working");
+    assert.equal(session.stateSince, 400);
+  }
+});
+
+test("recognizes Codex and Claude transcript interruption records", () => {
+  const codexTimestamp = transcriptInterruptionTimestamp(JSON.stringify({
+    timestamp: "2026-07-17T01:25:00.441Z",
+    type: "event_msg",
+    payload: { type: "turn_aborted", reason: "interrupted" },
+  }));
+  const claudeTimestamp = transcriptInterruptionTimestamp(JSON.stringify({
+    timestamp: "2026-07-17T01:25:01.441Z",
+    type: "user",
+    message: { content: [{ type: "text", text: "[Request interrupted by user]" }] },
+  }));
+
+  assert.equal(codexTimestamp, Date.parse("2026-07-17T01:25:00.441Z"));
+  assert.equal(claudeTimestamp, Date.parse("2026-07-17T01:25:01.441Z"));
+  assert.equal(transcriptInterruptionTimestamp(JSON.stringify({
+    type: "user",
+    message: { content: [{ type: "text", text: "keep working" }] },
+  })), null);
+});
+
+test("returns interrupted sessions to idle when the Stop hook is absent", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-panel-transcript-"));
+  const records = [
+    {
+      client: "codex",
+      file: path.join(tempDir, "codex.jsonl"),
+      trailingNewline: true,
+      interruption: {
+        timestamp: "2026-07-17T01:25:00.441Z",
+        type: "event_msg",
+        payload: { type: "turn_aborted", reason: "interrupted" },
+      },
+    },
+    {
+      client: "claude",
+      file: path.join(tempDir, "claude.jsonl"),
+      trailingNewline: false,
+      interruption: {
+        timestamp: "2026-07-17T01:25:01.441Z",
+        type: "user",
+        message: { content: [{ type: "text", text: "[Request interrupted by user]" }] },
+      },
+    },
+  ];
+
+  try {
+    for (const record of records) {
+      fs.writeFileSync(record.file, `${JSON.stringify({ type: "session_start" })}\n`);
+      const store = new SessionStore();
+      store.dispose();
+      try {
+        store.handleEvent({
+          session_id: `${record.client}:interrupted`,
+          event: "UserPromptSubmit",
+          client: record.client,
+          transcript_path: record.file,
+          ts: 100,
+        });
+        fs.appendFileSync(
+          record.file,
+          `${JSON.stringify(record.interruption)}${record.trailingNewline ? "\n" : ""}`
+        );
+        store.handleEvent({
+          session_id: `${record.client}:interrupted`,
+          event: "UserPromptSubmit",
+          client: record.client,
+          transcript_path: record.file,
+          ts: 99,
+        });
+
+        store._pollTranscripts();
+
+        const [session] = store.snapshot();
+        assert.equal(session.state, "idle");
+        assert.equal(session.currentTool, null);
+        assert.equal(session.message, null);
+      } finally {
+        store.dispose();
+      }
+    }
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("replaces a startup-captured card when its real hook session arrives", () => {
@@ -70,6 +208,129 @@ test("replaces a startup-captured card when its real hook session arrives", () =
     });
 
     assert.deepEqual(store.snapshot().map((session) => session.id), ["codex:real-session"]);
+  } finally {
+    store.dispose();
+  }
+});
+
+test("keeps one card when a restarted conversation reports multiple real session IDs", () => {
+  const store = new SessionStore();
+  try {
+    store.handleEvent({
+      session_id: "captured:codex:42",
+      event: "SessionStart",
+      client: "codex",
+      agent_pid: 42,
+      terminal_pid: 7,
+      cwd: "C:\\work\\project",
+      captured: true,
+      ts: 100,
+    });
+
+    // After Ctrl+C, Codex can identify SessionStart and the next prompt with
+    // different IDs even though both still belong to the same terminal.
+    store.handleEvent({
+      session_id: "codex:restart",
+      event: "SessionStart",
+      client: "codex",
+      agent_pid: 43,
+      terminal_pid: 7,
+      cwd: "C:\\work\\project",
+      ts: 200,
+    });
+    store.handleEvent({
+      session_id: "codex:next-prompt",
+      event: "UserPromptSubmit",
+      client: "codex",
+      agent_pid: 43,
+      terminal_pid: 7,
+      cwd: "C:\\work\\project",
+      prompt_line: "continue",
+      ts: 300,
+    });
+
+    assert.deepEqual(store.snapshot().map((session) => session.id), ["codex:next-prompt"]);
+    assert.equal(store.snapshot()[0].state, "working");
+
+    // A delayed event using the superseded ID is routed to the same card and
+    // then rejected by the existing timestamp guard.
+    store.handleEvent({
+      session_id: "codex:restart",
+      event: "Stop",
+      client: "codex",
+      ts: 250,
+    });
+    assert.equal(store.snapshot().length, 1);
+    assert.equal(store.snapshot()[0].state, "working");
+  } finally {
+    store.dispose();
+  }
+});
+
+test("replaces the prior card when Codex starts a /new conversation", () => {
+  const store = new SessionStore();
+  try {
+    store.handleEvent({
+      session_id: "codex:old-conversation",
+      event: "SessionStart",
+      client: "codex",
+      agent_pid: 42,
+      wt_hwnd: "101",
+      cwd: "C:\\work\\project",
+      ts: 100,
+    });
+    store.handleEvent({
+      session_id: "codex:new-conversation",
+      event: "SessionStart",
+      client: "codex",
+      agent_pid: 43,
+      wt_hwnd: "101",
+      cwd: "C:\\work\\project",
+      source: "new",
+      ts: 200,
+    });
+
+    assert.deepEqual(store.snapshot().map((session) => session.id), ["codex:new-conversation"]);
+
+    // Hooks still emitted for the old ID must update the replacement card,
+    // rather than recreating the predecessor card.
+    store.handleEvent({
+      session_id: "codex:old-conversation",
+      event: "Stop",
+      client: "codex",
+      ts: 150,
+    });
+    assert.equal(store.snapshot().length, 1);
+    assert.equal(store.snapshot()[0].id, "codex:new-conversation");
+  } finally {
+    store.dispose();
+  }
+});
+
+test("does not merge an ambiguous /new session in a shared terminal window", () => {
+  const store = new SessionStore();
+  try {
+    for (const [id, pid] of [["codex:first", 41], ["codex:second", 42]]) {
+      store.handleEvent({
+        session_id: id,
+        event: "SessionStart",
+        client: "codex",
+        agent_pid: pid,
+        wt_hwnd: "101",
+        cwd: "C:\\work\\project",
+      });
+    }
+    store.handleEvent({
+      session_id: "codex:new-conversation",
+      event: "SessionStart",
+      client: "codex",
+      agent_pid: 43,
+      wt_hwnd: "101",
+      cwd: "C:\\work\\project",
+      source: "new",
+    });
+
+    assert.equal(store.snapshot().length, 3);
   } finally {
     store.dispose();
   }
@@ -114,7 +375,7 @@ test("replaces a startup-captured card when wrapper agent PIDs differ", () => {
   }
 });
 
-test("keeps a restarted Codex session working when the captured agent exited", () => {
+test("creates a restarted Codex session after the captured agent exits", () => {
   const store = new SessionStore();
   store.dispose();
   const realKill = process.kill;
@@ -137,12 +398,12 @@ test("keeps a restarted Codex session working when the captured agent exited", (
       captured: true,
     });
 
-    // The original Codex process exits, but its terminal remains open.
+    // The original Codex process exits, so its captured card is removed.
     store._poll();
-    assert.equal(store.snapshot()[0].state, "dead");
+    assert.deepEqual(store.snapshot(), []);
 
-    // A hook can occasionally miss the new agent PID. Matching the stable
-    // terminal must replace the captured card without inheriting the old PID.
+    // A hook can occasionally miss the new agent PID. The fresh session must
+    // still be created without inheriting the old PID.
     store.handleEvent({
       session_id: "codex:new-session",
       event: "UserPromptSubmit",
@@ -327,7 +588,7 @@ test("does not replace another client's captured card on a shared terminal PID",
   }
 });
 
-test("removes a completed session when its mapped terminal window closes", () => {
+test("removes an idle stopped session when its mapped terminal window closes", () => {
   const store = new SessionStore();
   store.dispose();
   const win32 = require("../src/main/win32");
@@ -345,7 +606,7 @@ test("removes a completed session when its mapped terminal window closes", () =>
   }
 });
 
-test("removes completed PowerShell and cmd sessions when their terminal process exits", () => {
+test("removes stopped PowerShell and cmd sessions when their terminal process exits", () => {
   const store = new SessionStore();
   store.dispose();
   const realKill = process.kill;
@@ -380,7 +641,7 @@ test("removes completed PowerShell and cmd sessions when their terminal process 
   }
 });
 
-test("marks an active session dead when its terminal window closes", () => {
+test("removes an active session when its terminal window closes", () => {
   const store = new SessionStore();
   store.dispose();
   const win32 = require("../src/main/win32");
@@ -392,7 +653,7 @@ test("marks an active session dead when its terminal window closes", () => {
     store.handleEvent({ session_id: "codex:working", event: "UserPromptSubmit" });
 
     store._poll();
-    assert.equal(store.snapshot()[0].state, "dead");
+    assert.deepEqual(store.snapshot(), []);
   } finally {
     win32.isWindowAlive = realIsWindowAlive;
   }

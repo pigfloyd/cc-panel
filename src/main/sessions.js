@@ -1,4 +1,5 @@
 // sessions.js — SessionStore: hook events in, card snapshots out.
+const fs = require("fs");
 const path = require("path");
 const win32 = require("./win32");
 
@@ -8,32 +9,44 @@ const EVENT_STATE = {
   PreToolUse: "working",
   PostToolUse: "working",
   PermissionRequest: "needs_input",
-  Stop: "done",
+  Stop: "idle",
   StopFailure: "error",
   PostToolUseFailure: "error",
   Notification: "needs_input",
 };
 
 const POLL_MS = 5000;
-const ENDED_LINGER_MS = 15000; // keep ended cards briefly so the user sees them go
+const TRANSCRIPT_POLL_MS = 1000;
+const MAX_TRANSCRIPT_READ_BYTES = 256 * 1024;
+const SESSION_IDENTITY_EVENTS = new Set(["SessionStart", "UserPromptSubmit"]);
+const SESSION_RESET_SOURCES = new Set(["clear", "new"]);
 
 class SessionStore {
   constructor(onUpdate) {
     this.sessions = new Map();
+    this.sessionAliases = new Map();
     this.onUpdate = onUpdate || (() => {});
     this._pollTimer = setInterval(() => this._poll(), POLL_MS);
+    this._transcriptTimer = setInterval(() => this._pollTranscripts(), TRANSCRIPT_POLL_MS);
   }
 
   dispose() {
     clearInterval(this._pollTimer);
+    clearInterval(this._transcriptTimer);
   }
 
   handleEvent(body) {
     if (!body || typeof body !== "object" || !body.session_id || !body.event) return;
-    const id = body.session_id;
+    const rawId = body.session_id;
     const ts = Number(body.ts) || Date.now();
 
+    let id = this._resolveSessionId(rawId);
     let s = this.sessions.get(id);
+    if (!s && !body.captured && SESSION_IDENTITY_EVENTS.has(body.event)) {
+      s = this._adoptMappedSession(rawId, body, ts);
+      if (s) id = s.id;
+    }
+    if (s && rawId !== id && ts < s.lastEventTs) return;
     if (!s) {
       // A late/out-of-order SessionEnd for a session we never tracked must not
       // resurrect a card — async hooks can deliver end before start.
@@ -53,7 +66,10 @@ class SessionStore {
         terminal_pid: null,
         wt_hwnd: null,
         windowAlive: null,
-        endedAt: null,
+        turnStopped: false,
+        transcriptPath: null,
+        transcriptOffset: null,
+        transcriptRemainder: "",
       };
       this.sessions.set(id, s);
     }
@@ -77,31 +93,32 @@ class SessionStore {
       s.wt_hwnd = String(body.wt_hwnd);
       s.windowAlive = true;
     }
+    const transcriptPath = body.transcript_path || body.transcriptPath;
+    if (transcriptPath) this._trackTranscript(s, transcriptPath);
 
     // async hooks can arrive out of order — drop stale state transitions
     if (ts < s.lastEventTs) return;
     s.lastEventTs = ts;
-    s.endedAt = null; // any event revives an "ended" card
+    s.turnStopped = body.event === "Stop";
 
     if (body.event === "SessionEnd") {
-      // /clear also ends the session (source="clear"); Claude Code then opens a
-      // fresh session with a NEW session_id, so ending this card is correct — the
-      // replacement is handled when that SessionStart arrives (see below).
-      this._setTerminalState(s, "ended", ts);
+      this._deleteSession(id);
       this._emit();
       return;
     }
 
-    // /clear opens a new session (new session_id) on the same agent process.
-    // Drop the predecessor card so the fresh session replaces it in place
-    // instead of showing up as a duplicate.
-    if (body.event === "SessionStart" && body.source === "clear" && s.agent_pid) {
-      for (const [otherId, other] of this.sessions) {
-        if (otherId !== id && other.agent_pid === s.agent_pid) this.sessions.delete(otherId);
-      }
+    // /clear and /new open a new session with a new ID. Replace its
+    // predecessor rather than rendering a second card for the same terminal.
+    // PID matching is preferred; a unique window/cwd match covers hook
+    // snapshots that miss the new process ID during a restart.
+    if (body.event === "SessionStart" &&
+        SESSION_RESET_SOURCES.has(String(body.source || "").toLowerCase())) {
+      this._replaceResetSession(s);
     }
 
-    const next = EVENT_STATE[body.event];
+    const next = body.event === "Stop" && String(s.client || "").toLowerCase() === "codex"
+      ? "done"
+      : EVENT_STATE[body.event];
     if (!next) return;
 
     if (body.event === "PreToolUse" || body.event === "PermissionRequest") {
@@ -145,6 +162,86 @@ class SessionStore {
       if (result.ok) minimized += 1;
     }
     return { ok: true, minimized };
+  }
+
+  _resolveSessionId(id) {
+    let current = id;
+    const seen = new Set();
+    while (this.sessionAliases.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = this.sessionAliases.get(current);
+    }
+    return current;
+  }
+
+  _adoptMappedSession(rawId, body, ts) {
+    const candidates = [...this.sessions.entries()].filter(([otherId, other]) => {
+      if (otherId.startsWith("captured:") || !sameClient(other.client, body.client)) return false;
+      if (samePid(other.agent_pid, body.agent_pid)) return true;
+      return samePid(other.terminal_pid, body.terminal_pid) &&
+        (!other.wt_hwnd || !body.wt_hwnd || sameWindow(other.wt_hwnd, body.wt_hwnd));
+    });
+    if (!candidates.length) return null;
+
+    candidates.sort((left, right) => right[1].lastEventTs - left[1].lastEventTs);
+    const [primaryId, primary] = candidates[0];
+    let canonicalId = primaryId;
+
+    // A stale event from an older hook ID must not rename the current card.
+    // Newer lifecycle events move the card to the latest real session ID.
+    if (ts >= primary.lastEventTs && rawId !== primaryId) {
+      this.sessions.delete(primaryId);
+      this.sessionAliases.delete(rawId);
+      this.sessionAliases.set(primaryId, rawId);
+      primary.id = rawId;
+      canonicalId = rawId;
+      this.sessions.set(canonicalId, primary);
+    } else if (rawId !== primaryId) {
+      this.sessionAliases.set(rawId, primaryId);
+    }
+
+    // Collapse any duplicates already created for the same process or shell.
+    // Their IDs remain aliases so late async hooks still update this card.
+    for (const [otherId] of candidates.slice(1)) {
+      this.sessions.delete(otherId);
+      if (otherId !== canonicalId) this.sessionAliases.set(otherId, canonicalId);
+    }
+    return primary;
+  }
+
+  _deleteSession(id) {
+    this.sessions.delete(id);
+    for (const [alias] of this.sessionAliases) {
+      if (alias === id || this._resolveSessionId(alias) === id) {
+        this.sessionAliases.delete(alias);
+      }
+    }
+  }
+
+  _replaceResetSession(session) {
+    const candidates = [...this.sessions.entries()].filter(([otherId, other]) => {
+      if (otherId === session.id || otherId.startsWith("captured:")) return false;
+      if (!sameClient(other.client, session.client)) return false;
+      return samePid(other.agent_pid, session.agent_pid) ||
+        samePid(other.terminal_pid, session.terminal_pid);
+    });
+
+    let match = candidates.length === 1 ? candidates[0] : null;
+    if (!match) {
+      match = uniqueMatch(
+        [...this.sessions.entries()].filter(([otherId, other]) =>
+          otherId !== session.id &&
+          !otherId.startsWith("captured:") &&
+          sameClient(other.client, session.client)
+        ),
+        ([, other]) => sameWindow(other.wt_hwnd, session.wt_hwnd) && sameCwd(other.cwd, session.cwd)
+      );
+    }
+    if (!match) return;
+
+    const [otherId] = match;
+    this.sessions.delete(otherId);
+    this.sessionAliases.set(otherId, session.id);
   }
 
   _replaceCapturedSession(session, body) {
@@ -203,20 +300,38 @@ class SessionStore {
     s.stateSince = ts;
   }
 
-  _setTerminalState(s, state, ts) {
-    this._setState(s, state, ts);
-    s.endedAt = ts;
+  _trackTranscript(s, transcriptPath) {
+    if (typeof transcriptPath !== "string" || !transcriptPath.trim()) return;
+    const resolved = path.resolve(transcriptPath.trim());
+    if (s.transcriptPath === resolved) return;
+
+    s.transcriptPath = resolved;
+    s.transcriptOffset = transcriptSize(resolved);
+    s.transcriptRemainder = "";
+  }
+
+  _pollTranscripts() {
+    let changed = false;
+    for (const s of this.sessions.values()) {
+      if ((s.state !== "working" && s.state !== "needs_input") || !s.transcriptPath) continue;
+      const interruptedAt = readTranscriptInterruption(s);
+      if (interruptedAt === null) continue;
+
+      const ts = Math.max(interruptedAt, s.lastEventTs);
+      s.lastEventTs = ts;
+      s.turnStopped = true;
+      s.currentTool = null;
+      s.message = null;
+      this._setState(s, "idle", ts);
+      changed = true;
+    }
+    if (changed) this._emit();
   }
 
   _poll() {
     const now = Date.now();
     let changed = false;
     for (const [id, s] of this.sessions) {
-      if (s.endedAt && now - s.endedAt > ENDED_LINGER_MS) {
-        this.sessions.delete(id);
-        changed = true;
-        continue;
-      }
       if (s.wt_hwnd) {
         const alive = win32.isWindowAlive(s.wt_hwnd);
         if (alive !== null && alive !== s.windowAlive) {
@@ -224,34 +339,23 @@ class SessionStore {
           changed = true;
 
           if (!alive) {
-            // Closing a completed terminal removes its card immediately. For
-            // an active session, briefly show that the process disappeared.
-            if (s.state === "done") {
-              this.sessions.delete(id);
-              continue;
-            }
-            if (s.state !== "ended" && s.state !== "dead") {
-              this._setTerminalState(s, "dead", now);
-            }
+            this._deleteSession(id);
+            continue;
           }
         }
       }
-      if (s.terminal_pid && s.state !== "ended" && s.state !== "dead") {
+      if (s.terminal_pid) {
         if (!pidAlive(s.terminal_pid)) {
           // PowerShell and cmd may not yield a usable HWND. Their process is
           // still a reliable lifecycle signal when the console is closed.
-          if (s.state === "done") {
-            this.sessions.delete(id);
-            changed = true;
-            continue;
-          }
-          this._setTerminalState(s, "dead", now);
+          this._deleteSession(id);
           changed = true;
+          continue;
         }
       }
-      if (s.agent_pid && s.state !== "ended" && s.state !== "dead") {
+      if (s.agent_pid) {
         if (!pidAlive(s.agent_pid)) {
-          this._setTerminalState(s, "dead", now);
+          this._deleteSession(id);
           changed = true;
         }
       }
@@ -330,4 +434,89 @@ function uniqueMatch(entries, predicate) {
   return matches.length === 1 ? matches[0] : null;
 }
 
-module.exports = { SessionStore };
+function transcriptSize(transcriptPath) {
+  try {
+    const stat = fs.statSync(transcriptPath);
+    return stat.isFile() ? stat.size : null;
+  } catch {
+    return null;
+  }
+}
+
+function readTranscriptInterruption(session) {
+  const size = transcriptSize(session.transcriptPath);
+  if (size === null) return null;
+  if (session.transcriptOffset === null || size < session.transcriptOffset) {
+    session.transcriptOffset = size;
+    session.transcriptRemainder = "";
+    return null;
+  }
+  if (size === session.transcriptOffset) return null;
+
+  const start = Math.max(session.transcriptOffset, size - MAX_TRANSCRIPT_READ_BYTES);
+  const skipped = start > session.transcriptOffset;
+  const buffer = Buffer.allocUnsafe(size - start);
+  let fd;
+  let bytesRead = 0;
+  try {
+    fd = fs.openSync(session.transcriptPath, "r");
+    bytesRead = fs.readSync(fd, buffer, 0, buffer.length, start);
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch {}
+    }
+  }
+
+  session.transcriptOffset = start + bytesRead;
+  const text = buffer.subarray(0, bytesRead).toString("utf8");
+  const parts = `${skipped ? "" : session.transcriptRemainder}${text}`.split(/\r?\n/);
+  if (skipped) parts.shift();
+  session.transcriptRemainder = parts.pop() || "";
+
+  for (const line of parts) {
+    const interruptedAt = transcriptInterruptionTimestamp(line);
+    if (interruptedAt !== null) return interruptedAt;
+  }
+
+  // JSONL writers do not all append a final newline. Parse a complete trailing
+  // object now, while retaining an incomplete object for the next poll.
+  if (session.transcriptRemainder) {
+    const parsed = parseTranscriptLine(session.transcriptRemainder);
+    if (parsed.valid) session.transcriptRemainder = "";
+    if (parsed.interruptedAt !== null) return parsed.interruptedAt;
+  }
+  return null;
+}
+
+function transcriptInterruptionTimestamp(line) {
+  return parseTranscriptLine(line).interruptedAt;
+}
+
+function parseTranscriptLine(line) {
+  let entry;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    return { valid: false, interruptedAt: null };
+  }
+
+  const codexInterrupted = entry && entry.type === "event_msg" &&
+    entry.payload && entry.payload.type === "turn_aborted";
+  const claudeContent = entry && entry.type === "user" && entry.message && entry.message.content;
+  const claudeInterrupted = (Array.isArray(claudeContent) && claudeContent.some((item) =>
+    item && item.type === "text" && item.text === "[Request interrupted by user]"
+  )) || claudeContent === "[Request interrupted by user]";
+  if (!codexInterrupted && !claudeInterrupted) {
+    return { valid: true, interruptedAt: null };
+  }
+
+  const timestamp = Date.parse(entry.timestamp);
+  return {
+    valid: true,
+    interruptedAt: Number.isFinite(timestamp) ? timestamp : Date.now(),
+  };
+}
+
+module.exports = { SessionStore, transcriptInterruptionTimestamp };
