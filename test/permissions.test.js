@@ -73,8 +73,9 @@ test("summarizes tool input and hides likely secrets", () => {
   );
 });
 
-test("keeps Codex permission events on the status-only path", () => {
-  assert.equal(shouldHandlePermission("PermissionRequest", "claude"), true);
+test("keeps Claude permission interception disabled", () => {
+  // assert.equal(shouldHandlePermission("PermissionRequest", "claude"), true);
+  assert.equal(shouldHandlePermission("PermissionRequest", "claude"), false);
   assert.equal(shouldHandlePermission("PermissionRequest", "codex"), false);
 });
 

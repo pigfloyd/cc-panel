@@ -24,6 +24,7 @@ function agentClient(process) {
 function capturedSessions(processes, windows, now = Date.now()) {
   const byPid = new Map(processes.map((p) => [Number(p.pid), p]));
   const hwndByPid = new Map();
+  const exactHwndPids = new Set();
   const terminalHandles = new Set();
   for (const window of windows) {
     const pid = Number(window.pid);
@@ -42,6 +43,7 @@ function capturedSessions(processes, windows, now = Date.now()) {
     // A Windows Terminal tab's PseudoConsoleWindow belongs to the shell
     // process, while its GA_ROOTOWNER is the exact visible Terminal window.
     hwndByPid.set(Number(window.pid), rootOwnerHwnd);
+    exactHwndPids.add(Number(window.pid));
   }
   const candidates = processes
     .map((process) => ({ process, client: agentClient(process) }))
@@ -77,6 +79,7 @@ function capturedSessions(processes, windows, now = Date.now()) {
       agent_pid: process.pid,
       terminal_pid: terminalPid,
       wt_hwnd: hwnd,
+      window_mapping: hwnd ? (exactHwndPids.has(Number(terminalPid)) ? "exact" : "fallback") : null,
       cwd: process.cwd || "",
       ts: now,
       captured: true,

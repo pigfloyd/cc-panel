@@ -6,7 +6,8 @@ const config = require("./config");
 const server = require("./server");
 const installer = require("./hook-installer");
 const { SessionStore } = require("./sessions");
-const { PermissionStore } = require("./permissions");
+// permission-request UI disabled
+// const { PermissionStore } = require("./permissions");
 const { captureRunningSessions } = require("./startup-capture");
 const {
   normalizeTerminalExecutable,
@@ -21,7 +22,7 @@ const {
 
 let win = null;
 let store = null;
-let permissionStore = null;
+// let permissionStore = null;
 let cfg = config.load();
 let saveBoundsTimer = null;
 let hookInstallStatus = null;
@@ -51,12 +52,14 @@ async function main() {
   store = new SessionStore((snapshot) => {
     if (win && !win.isDestroyed()) win.webContents.send("sessions", snapshot);
   });
-  permissionStore = new PermissionStore((snapshot) => {
-    if (win && !win.isDestroyed()) win.webContents.send("permissions", snapshot);
-  });
+  // permission-request UI disabled
+  // permissionStore = new PermissionStore((snapshot) => {
+  //   if (win && !win.isDestroyed()) win.webContents.send("permissions", snapshot);
+  // });
 
   try {
-    await server.start((body) => store.handleEvent(body), permissionStore);
+    // await server.start((body) => store.handleEvent(body), permissionStore);
+    await server.start((body) => store.handleEvent(body), null);
   } catch (err) {
     dialog.showErrorBox("cc-panel", String(err.message || err));
     app.quit();
@@ -74,7 +77,7 @@ async function main() {
   app.on("window-all-closed", () => {
     server.clearRuntime();
     store.dispose();
-    permissionStore.dispose();
+    // permissionStore.dispose();
     app.quit();
   });
 }
@@ -171,7 +174,8 @@ function createWindow() {
 function registerIpc() {
   ipcMain.handle("get-state", () => ({
     sessions: store.snapshot(),
-    permissions: permissionStore.snapshot(),
+    // permissions: permissionStore.snapshot(),
+    permissions: [],
     hooksInstalled: installer.isInstalled(),
     claudeInstalled: installer.isClaudeInstalled(),
     codexInstalled: installer.isCodexInstalled(),
@@ -188,9 +192,10 @@ function registerIpc() {
     return store.minimizeAll();
   });
 
-  ipcMain.handle("resolve-permission", (_e, reqId, decision) => ({
-    ok: permissionStore.resolve(reqId, decision),
-  }));
+  // permission-request UI disabled
+  // ipcMain.handle("resolve-permission", (_e, reqId, decision) => ({
+  //   ok: permissionStore.resolve(reqId, decision),
+  // }));
 
   ipcMain.handle("list-terminal-apps", () => ({
     ok: true,

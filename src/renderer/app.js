@@ -1,26 +1,11 @@
 ﻿// app.js — renderer: render session cards, handle clicks and settings.
-const STATE_LABEL = {
-  working: "工作中",
-  needs_input: "等待输入",
-  done: "已完成",
-  error: "出错",
-  idle: "空闲",
-  ended: "已结束",
-  dead: "进程已退出",
-};
-const STATE_SIGNAL_COLOR = {
-  working: "orange",
-  needs_input: "red",
-  done: "green",
-  error: "red",
-};
 // transitions worth interrupting the user for
 const NOTIFY_STATES = new Set(["needs_input", "done", "error"]);
 const orderSessions = createStableSessionOrder();
 const { clientLabel, stateAgeLabel } = sessionMeta;
 
 const els = {
-  permissions: document.getElementById("permissions"),
+  // permissions: document.getElementById("permissions"),
   cards: document.getElementById("cards"),
   empty: document.getElementById("empty"),
   toast: document.getElementById("toast"),
@@ -36,8 +21,9 @@ const els = {
 };
 
 let sessions = [];
-let permissions = [];
-let permissionSnapshotReady = false;
+// permission-request UI disabled
+// let permissions = [];
+// let permissionSnapshotReady = false;
 let prevStates = new Map(); // id -> state, for flash/sound on transition
 let cfg = {
   alwaysOnTop: true,
@@ -94,17 +80,20 @@ function render() {
   els.cards.replaceChildren(...sorted.map(buildCard));
 }
 
-function renderPermissions() {
-  els.permissions.classList.toggle("hidden", permissions.length === 0);
-  document.body.classList.toggle("has-permissions", permissions.length > 0);
-  els.permissions.replaceChildren(...permissions.map(buildPermissionCard));
-  refreshEmptyState();
-}
+// permission-request UI disabled
+// function renderPermissions() {
+//   els.permissions.classList.toggle("hidden", permissions.length === 0);
+//   document.body.classList.toggle("has-permissions", permissions.length > 0);
+//   els.permissions.replaceChildren(...permissions.map(buildPermissionCard));
+//   refreshEmptyState();
+// }
 
 function refreshEmptyState() {
-  els.empty.classList.toggle("hidden", sessions.length > 0 || permissions.length > 0);
+  // els.empty.classList.toggle("hidden", sessions.length > 0 || permissions.length > 0);
+  els.empty.classList.toggle("hidden", sessions.length > 0);
 }
 
+/*
 function buildPermissionCard(request) {
   const card = document.createElement("article");
   card.className = "permission-card";
@@ -164,28 +153,7 @@ function permissionButton(label, decision) {
   button.textContent = label;
   return button;
 }
-
-function buildTrafficLight(state) {
-  const label = STATE_LABEL[state] || state;
-  const color = STATE_SIGNAL_COLOR[state];
-  const trafficLight = document.createElement("span");
-  trafficLight.className = "traffic-light";
-  trafficLight.title = label;
-  trafficLight.setAttribute("role", "img");
-  trafficLight.setAttribute("aria-label", `状态：${label}`);
-
-  const lens = document.createElement("span");
-  lens.className = color
-    ? `signal-lens signal-${color} is-lit`
-    : "signal-lens signal-clear";
-  lens.setAttribute("aria-hidden", "true");
-  const core = document.createElement("span");
-  core.className = "signal-core";
-  lens.append(core);
-  trafficLight.append(lens);
-
-  return trafficLight;
-}
+*/
 
 function buildCard(s) {
   const card = document.createElement("button");
@@ -212,9 +180,8 @@ function buildCard(s) {
     meta.append(tag);
   }
 
-  meta.append(buildTrafficLight(s.state));
-
-  card.append(head, meta);
+  card.append(head);
+  if (meta.childElementCount) card.append(meta);
 
   const context = document.createElement("div");
   context.className = "session-context";
@@ -286,14 +253,15 @@ function applySnapshot(snapshot) {
   }
 }
 
-function applyPermissionSnapshot(snapshot) {
-  const previousIds = new Set(permissions.map((item) => item.req_id));
-  const hasNewRequest = permissionSnapshotReady && snapshot.some((item) => !previousIds.has(item.req_id));
-  permissions = snapshot;
-  permissionSnapshotReady = true;
-  renderPermissions();
-  if (hasNewRequest && cfg.sound) beep();
-}
+// permission-request UI disabled
+// function applyPermissionSnapshot(snapshot) {
+//   const previousIds = new Set(permissions.map((item) => item.req_id));
+//   const hasNewRequest = permissionSnapshotReady && snapshot.some((item) => !previousIds.has(item.req_id));
+//   permissions = snapshot;
+//   permissionSnapshotReady = true;
+//   renderPermissions();
+//   if (hasNewRequest && cfg.sound) beep();
+// }
 
 function refreshConfigButtons() {
   els.btnSettings.classList.toggle("active", !els.settingsPanel.classList.contains("hidden"));
@@ -444,7 +412,8 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") setSettingsOpen(false);
 });
 window.ccPanel.onSessions(applySnapshot);
-window.ccPanel.onPermissions(applyPermissionSnapshot);
+// permission-request UI disabled
+// window.ccPanel.onPermissions(applyPermissionSnapshot);
 setInterval(() => refreshStateAges(), 1000);
 
 (async function init() {
@@ -459,5 +428,5 @@ setInterval(() => refreshStateAges(), 1000);
     showToast("开机自启动设置失败：" + (state.autoLaunchStatus.error || "未知错误"));
   }
   applySnapshot(state.sessions);
-  applyPermissionSnapshot(state.permissions || []);
+  // applyPermissionSnapshot(state.permissions || []);
 })();

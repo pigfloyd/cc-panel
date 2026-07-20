@@ -307,17 +307,23 @@ test("replaces the prior card when Codex starts a /new conversation", () => {
   }
 });
 
-test("does not merge an ambiguous /new session in a shared terminal window", () => {
+test("does not merge distinct processes when foreground inference reports the same window", () => {
   const store = new SessionStore();
   try {
-    for (const [id, pid] of [["codex:first", 41], ["codex:second", 42]]) {
+    for (const [id, agentPid, terminalPid, ts] of [
+      ["codex:first", 41, 201, 100],
+      ["codex:second", 42, 202, 200],
+    ]) {
       store.handleEvent({
         session_id: id,
         event: "SessionStart",
         client: "codex",
-        agent_pid: pid,
+        agent_pid: agentPid,
+        terminal_pid: terminalPid,
         wt_hwnd: "101",
+        window_mapping: "foreground",
         cwd: "C:\\work\\project",
+        ts,
       });
     }
     store.handleEvent({
@@ -325,12 +331,45 @@ test("does not merge an ambiguous /new session in a shared terminal window", () 
       event: "SessionStart",
       client: "codex",
       agent_pid: 43,
+      terminal_pid: 203,
       wt_hwnd: "101",
+      window_mapping: "foreground",
       cwd: "C:\\work\\project",
       source: "new",
+      ts: 300,
     });
 
-    assert.equal(store.snapshot().length, 3);
+    assert.deepEqual(store.snapshot().map((session) => session.id), [
+      "codex:first",
+      "codex:second",
+      "codex:new-conversation",
+    ]);
+  } finally {
+    store.dispose();
+  }
+});
+
+test("keeps one card when exact mappings identify the same terminal window", () => {
+  const store = new SessionStore();
+  try {
+    for (const [id, agentPid, terminalPid, ts] of [
+      ["codex:first", 41, 201, 100],
+      ["codex:second", 42, 202, 200],
+    ]) {
+      store.handleEvent({
+        session_id: id,
+        event: "SessionStart",
+        client: "codex",
+        agent_pid: agentPid,
+        terminal_pid: terminalPid,
+        wt_hwnd: "101",
+        window_mapping: "exact",
+        cwd: "C:\\work\\project",
+        ts,
+      });
+    }
+
+    assert.deepEqual(store.snapshot().map((session) => session.id), ["codex:second"]);
   } finally {
     store.dispose();
   }

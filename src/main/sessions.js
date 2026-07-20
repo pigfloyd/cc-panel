@@ -65,6 +65,7 @@ class SessionStore {
         agent_pid: null,
         terminal_pid: null,
         wt_hwnd: null,
+        windowMapping: null,
         windowAlive: null,
         turnStopped: false,
         transcriptPath: null,
@@ -91,6 +92,7 @@ class SessionStore {
     if (body.terminal_pid) s.terminal_pid = body.terminal_pid;
     if (body.wt_hwnd) {
       s.wt_hwnd = String(body.wt_hwnd);
+      s.windowMapping = mergeWindowMapping(s.windowMapping, body.window_mapping);
       s.windowAlive = true;
     }
     const transcriptPath = body.transcript_path || body.transcriptPath;
@@ -176,7 +178,10 @@ class SessionStore {
 
   _adoptMappedSession(rawId, body, ts) {
     const candidates = [...this.sessions.entries()].filter(([otherId, other]) => {
-      if (otherId.startsWith("captured:") || !sameClient(other.client, body.client)) return false;
+      if (otherId.startsWith("captured:")) return false;
+      if (sameWindow(other.wt_hwnd, body.wt_hwnd) &&
+          other.windowMapping === "exact" && body.window_mapping === "exact") return true;
+      if (!sameClient(other.client, body.client)) return false;
       if (samePid(other.agent_pid, body.agent_pid)) return true;
       return samePid(other.terminal_pid, body.terminal_pid) &&
         (!other.wt_hwnd || !body.wt_hwnd || sameWindow(other.wt_hwnd, body.wt_hwnd));
@@ -234,7 +239,7 @@ class SessionStore {
           !otherId.startsWith("captured:") &&
           sameClient(other.client, session.client)
         ),
-        ([, other]) => sameWindow(other.wt_hwnd, session.wt_hwnd) && sameCwd(other.cwd, session.cwd)
+        (other) => sameWindow(other.wt_hwnd, session.wt_hwnd) && sameCwd(other.cwd, session.cwd)
       );
     }
     if (!match) return;
@@ -250,6 +255,7 @@ class SessionStore {
       agent_pid: body.agent_pid || session.agent_pid,
       terminal_pid: body.terminal_pid || session.terminal_pid,
       wt_hwnd: body.wt_hwnd || session.wt_hwnd,
+      window_mapping: body.window_mapping || session.windowMapping,
       cwd: body.cwd || session.cwd,
     };
     const captured = [...this.sessions.entries()].filter(([otherId, other]) =>
@@ -290,6 +296,7 @@ class SessionStore {
     if (!session.terminal_pid && other.terminal_pid) session.terminal_pid = other.terminal_pid;
     if (!session.wt_hwnd && other.wt_hwnd) {
       session.wt_hwnd = other.wt_hwnd;
+      session.windowMapping = other.windowMapping;
       session.windowAlive = other.windowAlive;
     }
     this.sessions.delete(otherId);
@@ -419,6 +426,11 @@ function normalizeCwd(value) {
   const normalized = path.win32.normalize(value.trim()).toLowerCase();
   const root = path.win32.parse(normalized).root;
   return normalized.length > root.length ? normalized.replace(/[\\/]+$/, "") : normalized;
+}
+
+function mergeWindowMapping(current, incoming) {
+  if (current === "exact" || incoming === "exact") return "exact";
+  return incoming || current || null;
 }
 
 function identitiesDoNotConflict(left, right, fields = ["agent_pid", "terminal_pid", "wt_hwnd"]) {

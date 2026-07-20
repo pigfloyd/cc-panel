@@ -84,8 +84,11 @@ using System;
 using System.Text;
 using System.Runtime.InteropServices;
 public class CcPanelWin32 {
+  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)]
   public static extern int GetClassName(IntPtr hWnd, StringBuilder sb, int maxCount);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
@@ -106,8 +109,27 @@ if ($fg -ne [IntPtr]::Zero) {
   $fgClass = $sb.ToString()
 }
 $processes = @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, CommandLine)
+$windows = New-Object System.Collections.ArrayList
+$callback = [CcPanelWin32+EnumWindowsProc]{ param($hwnd, $lParam)
+  if ([CcPanelWin32]::IsWindowVisible($hwnd)) {
+    [uint32]$windowPid = 0
+    [void][CcPanelWin32]::GetWindowThreadProcessId($hwnd, [ref]$windowPid)
+    $windowClass = New-Object System.Text.StringBuilder 256
+    [void][CcPanelWin32]::GetClassName($hwnd, $windowClass, $windowClass.Capacity)
+    $rootOwner = [CcPanelWin32]::GetAncestor($hwnd, 3)
+    [void]$windows.Add([pscustomobject]@{
+      hwnd = $hwnd.ToInt64().ToString()
+      pid = $windowPid
+      className = $windowClass.ToString()
+      rootOwnerHwnd = if ($rootOwner -eq [IntPtr]::Zero) { $null } else { $rootOwner.ToInt64().ToString() }
+    })
+  }
+  return $true
+}
+[void][CcPanelWin32]::EnumWindows($callback, [IntPtr]::Zero)
 [pscustomobject]@{
   processes = $processes
+  windows = [object[]]$windows
   foreground = [pscustomobject]@{
     hwnd = if ($fg -eq [IntPtr]::Zero) { $null } else { $fg.ToInt64().ToString() }
     pid = $fgPid
@@ -135,7 +157,8 @@ function getSnapshot() {
         commandLine: typeof p.CommandLine === "string" ? p.CommandLine : "",
       });
     }
-    return { procs, foreground: parsed.foreground || null };
+    const windows = Array.isArray(parsed.windows) ? parsed.windows : (parsed.windows ? [parsed.windows] : []);
+    return { procs, windows, foreground: parsed.foreground || null };
   } catch {
     return null;
   }
@@ -146,7 +169,7 @@ function getSnapshot() {
 // classic PowerShell/cmd console. The user just typed here, so at
 // SessionStart/UserPromptSubmit time that inference is sound.
 function resolveFromSnapshot(snapshot) {
-  const result = { agent_pid: null, terminal_pid: null, wt_hwnd: null };
+  const result = { agent_pid: null, terminal_pid: null, wt_hwnd: null, window_mapping: null };
   if (!snapshot) return result;
 
   let pid = process.ppid;
@@ -178,14 +201,34 @@ function resolveFromSnapshot(snapshot) {
     pid = info.ppid;
   }
 
+  const windows = Array.isArray(snapshot.windows) ? snapshot.windows : [];
+  if (result.terminal_pid) {
+    const terminalWindows = new Set(windows.filter((window) => {
+      const cls = String(window.className || "").toLowerCase();
+      const proc = snapshot.procs.get(Number(window.pid));
+      return cls === WT_WINDOW_CLASS && proc && WT_PROCESS_NAMES.has(proc.name);
+    }).map((window) => String(window.hwnd)));
+    const exact = windows.find((window) => {
+      const cls = String(window.className || "").toLowerCase();
+      if (Number(window.pid) !== Number(result.terminal_pid)) return false;
+      if (cls === CONSOLE_WINDOW_CLASS) return true;
+      return cls === "pseudoconsolewindow" && terminalWindows.has(String(window.rootOwnerHwnd || ""));
+    });
+    if (exact) {
+      result.wt_hwnd = String(exact.rootOwnerHwnd || exact.hwnd);
+      result.window_mapping = "exact";
+    }
+  }
+
   const fg = snapshot.foreground;
-  if (fg && fg.hwnd && /^[1-9]\d{0,18}$/.test(String(fg.hwnd))) {
+  if (!result.wt_hwnd && fg && fg.hwnd && /^[1-9]\d{0,18}$/.test(String(fg.hwnd))) {
     const fgProc = snapshot.procs.get(Number(fg.pid));
     const cls = String(fg.className || "").toLowerCase();
     const isWindowsTerminal = cls === WT_WINDOW_CLASS && fgProc && WT_PROCESS_NAMES.has(fgProc.name);
     const isClassicConsole = cls === CONSOLE_WINDOW_CLASS && fgProc && TERMINAL_NAMES.has(fgProc.name);
     if (isWindowsTerminal || isClassicConsole) {
       result.wt_hwnd = String(fg.hwnd);
+      result.window_mapping = "foreground";
     }
   }
   return result;
@@ -416,7 +459,9 @@ async function handlePermission(payload) {
 }
 
 function shouldHandlePermission(event, source) {
-  return event === "PermissionRequest" && source === "claude";
+  // Disabled: panel no longer intercepts Claude permission prompts.
+  // return event === "PermissionRequest" && source === "claude";
+  return false;
 }
 
 async function main() {
@@ -461,6 +506,7 @@ async function main() {
     if (resolved.agent_pid) body.agent_pid = resolved.agent_pid;
     if (resolved.terminal_pid) body.terminal_pid = resolved.terminal_pid;
     if (resolved.wt_hwnd) body.wt_hwnd = resolved.wt_hwnd;
+    if (resolved.window_mapping) body.window_mapping = resolved.window_mapping;
   }
 
   await post(body);

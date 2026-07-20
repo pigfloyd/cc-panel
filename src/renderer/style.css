@@ -17,10 +17,10 @@
   --shadow-pop: 0 12px 32px rgba(61, 47, 38, 0.14);
 
   /* per-state palette: dot / deep badge / focus ring */
-  --s-working-bd: #f1c5b4;
-  --s-working-dot: #d97757;
-  --s-working-tx: #b85f42;
-  --s-working-ring: rgba(217, 119, 87, 0.32);
+  --s-working-bd: #b9d8f0;
+  --s-working-dot: #2878c7;
+  --s-working-tx: #1b5f98;
+  --s-working-ring: rgba(40, 120, 199, 0.32);
 
   --s-needs-bd: #e8c7c1;
   --s-needs-dot: #b85c52;
@@ -325,7 +325,6 @@ body.has-permissions #cards {
 .card {
   --bg-c: var(--panel);
   --bd-c: var(--border);
-  --dot-c: var(--s-idle-dot);
   --tx-c: var(--s-idle-tx);
   --ring-c: var(--s-idle-ring);
 
@@ -551,6 +550,10 @@ body.has-permissions #cards {
   --signal-rgb: 217, 119, 87;
 }
 
+.card .signal-blue {
+  --signal-rgb: 59, 130, 246;
+}
+
 .card .signal-green {
   --signal-rgb: 111, 143, 104;
 }
@@ -631,26 +634,26 @@ body.has-permissions #cards {
 
 /* ---------- per-state theming ---------- */
 .card[data-state="working"] {
-  --dot-c: var(--s-working-dot); --tx-c: var(--s-working-tx); --ring-c: var(--s-working-ring);
+  --bg-c: #d9ebf8; --bd-c: var(--s-working-bd); --tx-c: var(--s-working-tx); --ring-c: var(--s-working-ring);
 }
 .card[data-state="needs_input"] {
-  --dot-c: var(--s-needs-dot); --tx-c: var(--s-needs-tx); --ring-c: var(--s-needs-ring);
+  --bg-c: #f3d8d5; --bd-c: var(--s-needs-bd); --tx-c: var(--s-needs-tx); --ring-c: var(--s-needs-ring);
 }
 .card[data-state="done"] {
-  --dot-c: var(--s-done-dot); --tx-c: var(--s-done-tx); --ring-c: var(--s-done-ring);
+  --bg-c: #dcebd7; --bd-c: var(--s-done-bd); --tx-c: var(--s-done-tx); --ring-c: var(--s-done-ring);
 }
 .card[data-state="error"] {
-  --dot-c: var(--s-error-dot); --tx-c: var(--s-error-tx); --ring-c: var(--s-error-ring);
+  --bg-c: #ffe5ba; --bd-c: var(--s-error-bd); --tx-c: var(--s-error-tx); --ring-c: var(--s-error-ring);
 }
 .card[data-state="idle"] {
-  --dot-c: var(--s-idle-dot); --tx-c: var(--s-idle-tx); --ring-c: var(--s-idle-ring);
+  --bg-c: #ffffff; --bd-c: var(--s-idle-bd); --tx-c: var(--s-idle-tx); --ring-c: var(--s-idle-ring);
 }
 .card[data-state="ended"] {
-  --dot-c: var(--s-ended-dot); --tx-c: var(--s-ended-tx); --ring-c: var(--s-ended-ring);
+  --bg-c: #e6e9ee; --bd-c: var(--s-ended-bd); --tx-c: var(--s-ended-tx); --ring-c: var(--s-ended-ring);
   opacity: 0.66;
 }
 .card[data-state="dead"] {
-  --dot-c: var(--s-dead-dot); --tx-c: var(--s-dead-tx); --ring-c: var(--s-dead-ring);
+  --bg-c: #e1e5eb; --bd-c: var(--s-dead-bd); --tx-c: var(--s-dead-tx); --ring-c: var(--s-dead-ring);
   opacity: 0.6;
 }
 

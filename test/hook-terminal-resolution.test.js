@@ -20,6 +20,7 @@ for (const [name, terminalPid] of [["powershell.exe", 900_001], ["cmd.exe", 900_
       agent_pid: process.ppid,
       terminal_pid: terminalPid,
       wt_hwnd: String(800_000 + terminalPid),
+      window_mapping: "foreground",
     });
   });
 }
@@ -56,5 +57,30 @@ test("ignores the temporary PowerShell process used to run a hook", () => {
     agent_pid: agentPid,
     terminal_pid: terminalPid,
     wt_hwnd: null,
+    window_mapping: null,
+  });
+});
+
+test("prefers the pseudo console's exact Windows Terminal window", () => {
+  const terminalPid = 900_030;
+  const windowPid = 900_031;
+  const snapshot = {
+    procs: new Map([
+      [process.ppid, { name: "codex.exe", ppid: terminalPid, commandLine: "codex" }],
+      [terminalPid, { name: "cmd.exe", ppid: windowPid, commandLine: "cmd.exe" }],
+      [windowPid, { name: "windowsterminal.exe", ppid: 0, commandLine: "wt.exe" }],
+    ]),
+    windows: [
+      { pid: terminalPid, hwnd: "100", className: "PseudoConsoleWindow", rootOwnerHwnd: "202" },
+      { pid: windowPid, hwnd: "202", className: "CASCADIA_HOSTING_WINDOW_CLASS" },
+    ],
+    foreground: { hwnd: "303", pid: windowPid, className: "CASCADIA_HOSTING_WINDOW_CLASS" },
+  };
+
+  assert.deepEqual(resolveFromSnapshot(snapshot), {
+    agent_pid: process.ppid,
+    terminal_pid: terminalPid,
+    wt_hwnd: "202",
+    window_mapping: "exact",
   });
 });

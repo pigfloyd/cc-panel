@@ -12,11 +12,7 @@ function createStableSessionOrder() {
       if (!activeIds.has(id)) positions.delete(id);
     }
 
-    return [...snapshot].sort((a, b) => {
-      const attentionA = a.state === "needs_input" || a.state === "error" ? 0 : 1;
-      const attentionB = b.state === "needs_input" || b.state === "error" ? 0 : 1;
-      return attentionA - attentionB || positions.get(a.id) - positions.get(b.id);
-    });
+    return [...snapshot].sort((a, b) => positions.get(a.id) - positions.get(b.id));
   };
 }
 

@@ -9,7 +9,8 @@ const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 const CODEX_HOOKS_PATH = path.join(CODEX_HOME, "hooks.json");
 const CODEX_BACKUP_PATH = CODEX_HOOKS_PATH + ".cc-panel-bak";
 const HOOK_SCRIPT = path.join(__dirname, "..", "..", "hook", "cc-panel-hook.js");
-const MARKERS = ["cc-panel-hook.js", "tpanel-hook.js"];
+const HOOK_CMD = path.join(__dirname, "..", "..", "hook", "cc-panel-hook.cmd");
+const MARKERS = ["cc-panel-hook.js", "cc-panel-hook.cmd", "tpanel-hook.js"];
 
 const CLAUDE_EVENTS = [
   "SessionStart",
@@ -40,20 +41,36 @@ function nodePath() {
   for (const c of candidates) {
     try { if (fs.existsSync(c)) return c; } catch {}
   }
-  return "node.exe";
+  return null;
 }
 
 function windowsHookRuntime() {
+  // Prefer a real Node binary. Electron-as-Node needs ELECTRON_RUN_AS_NODE, and
+  // Claude Code has been observed launching the hook executable without the
+  // PowerShell env prefix (leaving stuck Electron GUI processes).
+  const node = nodePath();
+  if (node) return { executable: node, electron: false, kind: "node" };
+
+  if (fs.existsSync(HOOK_CMD)) {
+    return { executable: HOOK_CMD, electron: false, kind: "cmd" };
+  }
+
   const devElectron = path.join(__dirname, "..", "..", "node_modules", "electron", "dist", "electron.exe");
-  if (fs.existsSync(devElectron)) return { executable: devElectron, electron: true };
-  if (process.versions.electron) return { executable: process.execPath, electron: true };
-  return { executable: nodePath(), electron: false };
+  if (fs.existsSync(devElectron)) return { executable: devElectron, electron: true, kind: "electron" };
+  if (process.versions.electron) return { executable: process.execPath, electron: true, kind: "electron" };
+  return { executable: "node.exe", electron: false, kind: "node" };
 }
 
 function windowsHookCommand(event, source, shell) {
   const runtime = windowsHookRuntime();
+  if (runtime.kind === "cmd") {
+    const invocation = `"${runtime.executable}" ${event} ${source}`;
+    return shell === "powershell" ? `& ${invocation}` : invocation;
+  }
+
   const invocation = `"${runtime.executable}" "${HOOK_SCRIPT}" ${event} ${source}`;
   if (!runtime.electron) return shell === "powershell" ? `& ${invocation}` : invocation;
+  // Last-resort Electron-as-Node path for packaged builds without system Node.
   return shell === "powershell"
     ? `$env:ELECTRON_RUN_AS_NODE="1"; & ${invocation}`
     : `set "ELECTRON_RUN_AS_NODE=1" && ${invocation}`;
@@ -78,31 +95,45 @@ function entryHasMarker(entry) {
 }
 
 function claudeEntry(event) {
-  const isPermissionRequest = event === "PermissionRequest";
+  // Permission-request interception disabled: treat all events as fire-and-forget
+  // status hooks so Claude keeps its own terminal permission prompts.
+  // const isPermissionRequest = event === "PermissionRequest";
+  // Prefer the .cmd launcher when present: Claude Code may invoke hooks via
+  // CreateProcess without evaluating PowerShell env assignment syntax.
+  const command = fs.existsSync(HOOK_CMD)
+    ? `"${HOOK_CMD}" ${event} claude`
+    : windowsHookCommand(event, "claude", "powershell");
   return {
     matcher: "",
     hooks: [
       {
         type: "command",
         shell: "powershell",
-        command: windowsHookCommand(event, "claude", "powershell"),
-        async: !isPermissionRequest,
-        timeout: isPermissionRequest ? 300 : 5,
+        command: command.startsWith("& ") ? command : `& ${command}`,
+        // async: !isPermissionRequest,
+        // timeout: isPermissionRequest ? 300 : 5,
+        async: true,
+        timeout: 5,
       },
     ],
   };
 }
 
 function codexEntry(event) {
+  const windowsCommand = fs.existsSync(HOOK_CMD)
+    ? `"${HOOK_CMD}" ${event} codex`
+    : windowsHookCommand(event, "codex", "powershell");
   return {
     matcher: "",
     hooks: [
       {
         type: "command",
         command: `node "${HOOK_SCRIPT}" ${event} codex`,
-        // Codex runs Windows hooks through PowerShell. Electron's Node mode
-        // avoids global Node/NVM version and path drift.
-        commandWindows: windowsHookCommand(event, "codex", "powershell"),
+        // Codex runs Windows hooks through PowerShell. Use the .cmd launcher so
+        // ELECTRON_RUN_AS_NODE / Node path resolution stays self-contained.
+        commandWindows: windowsCommand.startsWith("& ") || windowsCommand.startsWith("$env:")
+          ? windowsCommand
+          : `& ${windowsCommand}`,
         timeout: 5,
       },
     ],
@@ -231,4 +262,6 @@ module.exports = {
   SETTINGS_PATH: CLAUDE_SETTINGS_PATH,
   CODEX_HOOKS_PATH,
   codexEntry,
+  windowsHookRuntime,
+  windowsHookCommand,
 };

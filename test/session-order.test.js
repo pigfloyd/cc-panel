@@ -6,7 +6,7 @@ function ids(sessions) {
   return sessions.map((session) => session.id);
 }
 
-test("keeps ordinary sessions in their first-seen order as states change", () => {
+test("keeps sessions in their first-seen order as states change", () => {
   const orderSessions = createStableSessionOrder();
 
   assert.deepEqual(ids(orderSessions([
@@ -22,7 +22,7 @@ test("keeps ordinary sessions in their first-seen order as states change", () =>
   ])), ["a", "b", "c"]);
 });
 
-test("pins attention sessions and restores their stable position afterward", () => {
+test("does not reorder when sessions need attention", () => {
   const orderSessions = createStableSessionOrder();
   orderSessions([
     { id: "a", state: "working" },
@@ -34,11 +34,31 @@ test("pins attention sessions and restores their stable position afterward", () 
     { id: "a", state: "working" },
     { id: "b", state: "needs_input" },
     { id: "c", state: "error" },
-  ])), ["b", "c", "a"]);
+  ])), ["a", "b", "c"]);
 
   assert.deepEqual(ids(orderSessions([
     { id: "a", state: "done" },
     { id: "b", state: "working" },
     { id: "c", state: "working" },
   ])), ["a", "b", "c"]);
+});
+
+test("appends newly seen sessions and drops removed ones", () => {
+  const orderSessions = createStableSessionOrder();
+
+  assert.deepEqual(ids(orderSessions([
+    { id: "a", state: "working" },
+    { id: "b", state: "working" },
+  ])), ["a", "b"]);
+
+  assert.deepEqual(ids(orderSessions([
+    { id: "b", state: "working" },
+    { id: "c", state: "needs_input" },
+  ])), ["b", "c"]);
+
+  assert.deepEqual(ids(orderSessions([
+    { id: "c", state: "working" },
+    { id: "b", state: "error" },
+    { id: "a", state: "idle" },
+  ])), ["b", "c", "a"]);
 });

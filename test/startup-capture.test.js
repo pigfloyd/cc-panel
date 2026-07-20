@@ -13,8 +13,8 @@ test("captures running Claude and Codex CLIs with their terminal mapping", () =>
   ], [{ pid: 30, hwnd: "101" }], 123);
 
   assert.deepEqual(sessions, [
-    { session_id: "captured:codex:10", event: "SessionStart", client: "codex", agent_pid: 10, terminal_pid: 20, wt_hwnd: "101", cwd: "C:\\work\\codex-project", ts: 123, captured: true },
-    { session_id: "captured:claude:40", event: "SessionStart", client: "claude", agent_pid: 40, terminal_pid: 50, wt_hwnd: null, cwd: "C:\\work\\claude-project", ts: 123, captured: true },
+    { session_id: "captured:codex:10", event: "SessionStart", client: "codex", agent_pid: 10, terminal_pid: 20, wt_hwnd: "101", window_mapping: "fallback", cwd: "C:\\work\\codex-project", ts: 123, captured: true },
+    { session_id: "captured:claude:40", event: "SessionStart", client: "claude", agent_pid: 40, terminal_pid: 50, wt_hwnd: null, window_mapping: null, cwd: "C:\\work\\claude-project", ts: 123, captured: true },
   ]);
 });
 
