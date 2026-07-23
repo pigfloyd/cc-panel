@@ -61,8 +61,8 @@ test("includes the client and state start time in snapshots", () => {
   assert.equal(session.stateSince, 123_456);
 });
 
-test("returns Claude sessions to idle and Codex sessions to done when a turn stops", () => {
-  for (const [client, expectedState] of [["claude", "idle"], ["codex", "done"]]) {
+test("returns Claude and Codex sessions to done when a turn stops", () => {
+  for (const client of ["claude", "codex"]) {
     const store = new SessionStore();
     store.dispose();
 
@@ -88,7 +88,7 @@ test("returns Claude sessions to idle and Codex sessions to done when a turn sto
     });
 
     let [session] = store.snapshot();
-    assert.equal(session.state, expectedState);
+    assert.equal(session.state, "done");
     assert.equal(session.stateSince, 300);
     assert.equal(session.currentTool, null);
     assert.equal(session.message, null);
@@ -123,6 +123,57 @@ test("recognizes Codex and Claude transcript interruption records", () => {
     type: "user",
     message: { content: [{ type: "text", text: "keep working" }] },
   })), null);
+});
+
+test("marks a Codex request_user_input call as waiting for input until answered", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-panel-question-"));
+  const transcript = path.join(tempDir, "codex.jsonl");
+  const callId = "call_question_1";
+
+  try {
+    fs.writeFileSync(transcript, `${JSON.stringify({ type: "session_start" })}\n`);
+    const store = new SessionStore();
+    store.dispose();
+    try {
+      store.handleEvent({
+        session_id: "codex:question",
+        event: "UserPromptSubmit",
+        client: "codex",
+        transcript_path: transcript,
+        ts: 100,
+      });
+
+      fs.appendFileSync(transcript, `${JSON.stringify({
+        timestamp: "2026-07-17T01:25:00.441Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "request_user_input",
+          call_id: callId,
+        },
+      })}\n`);
+      store._pollTranscripts();
+      let [session] = store.snapshot();
+      assert.equal(session.state, "needs_input");
+
+      fs.appendFileSync(transcript, `${JSON.stringify({
+        timestamp: "2026-07-17T01:25:02.441Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: callId,
+          output: "selected",
+        },
+      })}\n`);
+      store._pollTranscripts();
+      [session] = store.snapshot();
+      assert.equal(session.state, "working");
+    } finally {
+      store.dispose();
+    }
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("returns interrupted sessions to idle when the Stop hook is absent", () => {

@@ -9,7 +9,7 @@ const EVENT_STATE = {
   PreToolUse: "working",
   PostToolUse: "working",
   PermissionRequest: "needs_input",
-  Stop: "idle",
+  Stop: "done",
   StopFailure: "error",
   PostToolUseFailure: "error",
   Notification: "needs_input",
@@ -71,6 +71,9 @@ class SessionStore {
         transcriptPath: null,
         transcriptOffset: null,
         transcriptRemainder: "",
+        transcriptQuestionCalls: new Set(),
+        transcriptQuestionSince: null,
+        waitingForTranscriptQuestion: false,
       };
       this.sessions.set(id, s);
     }
@@ -118,9 +121,7 @@ class SessionStore {
       this._replaceResetSession(s);
     }
 
-    const next = body.event === "Stop" && String(s.client || "").toLowerCase() === "codex"
-      ? "done"
-      : EVENT_STATE[body.event];
+    const next = EVENT_STATE[body.event];
     if (!next) return;
 
     if (body.event === "PreToolUse" || body.event === "PermissionRequest") {
@@ -132,6 +133,9 @@ class SessionStore {
       if (body.prompt_line) s.lastPrompt = body.prompt_line;
       s.message = null;
       s.currentTool = null;
+      s.transcriptQuestionCalls.clear();
+      s.transcriptQuestionSince = null;
+      s.waitingForTranscriptQuestion = false;
     }
     if (body.event === "Notification") s.message = body.message || null;
     else if (body.event !== "PreToolUse") s.message = null;
@@ -315,13 +319,30 @@ class SessionStore {
     s.transcriptPath = resolved;
     s.transcriptOffset = transcriptSize(resolved);
     s.transcriptRemainder = "";
+    s.transcriptQuestionCalls.clear();
+    s.transcriptQuestionSince = null;
+    s.waitingForTranscriptQuestion = false;
   }
 
   _pollTranscripts() {
     let changed = false;
     for (const s of this.sessions.values()) {
       if ((s.state !== "working" && s.state !== "needs_input") || !s.transcriptPath) continue;
+      const wasWaitingForQuestion = s.waitingForTranscriptQuestion;
       const interruptedAt = readTranscriptInterruption(s);
+      const waitingForQuestion = s.transcriptQuestionCalls.size > 0;
+
+      if (waitingForQuestion !== wasWaitingForQuestion) {
+        s.waitingForTranscriptQuestion = waitingForQuestion;
+        const questionTs = Number(s.transcriptQuestionSince) || Date.now();
+        if (waitingForQuestion && s.state === "working") {
+          this._setState(s, "needs_input", Math.max(s.lastEventTs, questionTs));
+        } else if (!waitingForQuestion && wasWaitingForQuestion && s.state === "needs_input") {
+          this._setState(s, "working", Math.max(s.lastEventTs, Date.now()));
+        }
+        changed = true;
+      }
+
       if (interruptedAt === null) continue;
 
       const ts = Math.max(interruptedAt, s.lastEventTs);
@@ -329,6 +350,9 @@ class SessionStore {
       s.turnStopped = true;
       s.currentTool = null;
       s.message = null;
+      s.transcriptQuestionCalls.clear();
+      s.transcriptQuestionSince = null;
+      s.waitingForTranscriptQuestion = false;
       this._setState(s, "idle", ts);
       changed = true;
     }
@@ -487,9 +511,11 @@ function readTranscriptInterruption(session) {
   if (skipped) parts.shift();
   session.transcriptRemainder = parts.pop() || "";
 
+  let interruptedAt = null;
   for (const line of parts) {
-    const interruptedAt = transcriptInterruptionTimestamp(line);
-    if (interruptedAt !== null) return interruptedAt;
+    const parsed = parseTranscriptLine(line);
+    updateTranscriptQuestionCalls(session, parsed);
+    if (parsed.interruptedAt !== null) interruptedAt = parsed.interruptedAt;
   }
 
   // JSONL writers do not all append a final newline. Parse a complete trailing
@@ -497,9 +523,10 @@ function readTranscriptInterruption(session) {
   if (session.transcriptRemainder) {
     const parsed = parseTranscriptLine(session.transcriptRemainder);
     if (parsed.valid) session.transcriptRemainder = "";
-    if (parsed.interruptedAt !== null) return parsed.interruptedAt;
+    if (parsed.valid) updateTranscriptQuestionCalls(session, parsed);
+    if (parsed.interruptedAt !== null) interruptedAt = parsed.interruptedAt;
   }
-  return null;
+  return interruptedAt;
 }
 
 function transcriptInterruptionTimestamp(line) {
@@ -511,24 +538,59 @@ function parseTranscriptLine(line) {
   try {
     entry = JSON.parse(line);
   } catch {
-    return { valid: false, interruptedAt: null };
+    return { valid: false, interruptedAt: null, questionStarted: null, questionFinished: null };
   }
 
+  const payload = entry && entry.payload;
+  const questionStarted = entry.type === "response_item" && payload &&
+    payload.type === "function_call" && payload.name === "request_user_input" &&
+    typeof payload.call_id === "string" ? payload.call_id : null;
+  const questionFinished = entry.type === "response_item" && payload &&
+    payload.type === "function_call_output" && typeof payload.call_id === "string"
+    ? payload.call_id
+    : null;
+
   const codexInterrupted = entry && entry.type === "event_msg" &&
-    entry.payload && entry.payload.type === "turn_aborted";
+    payload && payload.type === "turn_aborted";
   const claudeContent = entry && entry.type === "user" && entry.message && entry.message.content;
   const claudeInterrupted = (Array.isArray(claudeContent) && claudeContent.some((item) =>
     item && item.type === "text" && item.text === "[Request interrupted by user]"
   )) || claudeContent === "[Request interrupted by user]";
   if (!codexInterrupted && !claudeInterrupted) {
-    return { valid: true, interruptedAt: null };
+    return {
+      valid: true,
+      interruptedAt: null,
+      questionStarted,
+      questionFinished,
+      timestamp: transcriptTimestamp(entry),
+    };
   }
 
-  const timestamp = Date.parse(entry.timestamp);
   return {
     valid: true,
-    interruptedAt: Number.isFinite(timestamp) ? timestamp : Date.now(),
+    interruptedAt: transcriptTimestamp(entry),
+    questionStarted,
+    questionFinished,
+    timestamp: transcriptTimestamp(entry),
   };
+}
+
+function updateTranscriptQuestionCalls(session, parsed) {
+  if (parsed.questionStarted) {
+    if (session.transcriptQuestionCalls.size === 0) {
+      session.transcriptQuestionSince = parsed.timestamp;
+    }
+    session.transcriptQuestionCalls.add(parsed.questionStarted);
+  }
+  if (parsed.questionFinished && session.transcriptQuestionCalls.delete(parsed.questionFinished) &&
+      session.transcriptQuestionCalls.size === 0) {
+    session.transcriptQuestionSince = null;
+  }
+}
+
+function transcriptTimestamp(entry) {
+  const timestamp = Date.parse(entry && entry.timestamp);
+  return Number.isFinite(timestamp) ? timestamp : Date.now();
 }
 
 module.exports = { SessionStore, transcriptInterruptionTimestamp };

@@ -164,6 +164,12 @@ function buildCard(s) {
 
   const head = document.createElement("div");
   head.className = "head";
+  if (s.state === "working") {
+    const indicator = document.createElement("span");
+    indicator.className = "working-indicator";
+    indicator.setAttribute("aria-hidden", "true");
+    head.append(indicator);
+  }
   const project = document.createElement("span");
   project.className = "project";
   project.textContent = s.project;
