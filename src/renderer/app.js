@@ -5,7 +5,6 @@ const orderSessions = createStableSessionOrder();
 const { clientLabel, stateAgeLabel } = sessionMeta;
 
 const els = {
-  // permissions: document.getElementById("permissions"),
   cards: document.getElementById("cards"),
   empty: document.getElementById("empty"),
   toast: document.getElementById("toast"),
@@ -21,10 +20,7 @@ const els = {
 };
 
 let sessions = [];
-// permission-request UI disabled
-// let permissions = [];
-// let permissionSnapshotReady = false;
-let prevStates = new Map(); // id -> state, for flash/sound on transition
+let prevStates = new Map();
 let cfg = {
   alwaysOnTop: true,
   sound: false,
@@ -80,80 +76,9 @@ function render() {
   els.cards.replaceChildren(...sorted.map(buildCard));
 }
 
-// permission-request UI disabled
-// function renderPermissions() {
-//   els.permissions.classList.toggle("hidden", permissions.length === 0);
-//   document.body.classList.toggle("has-permissions", permissions.length > 0);
-//   els.permissions.replaceChildren(...permissions.map(buildPermissionCard));
-//   refreshEmptyState();
-// }
-
 function refreshEmptyState() {
-  // els.empty.classList.toggle("hidden", sessions.length > 0 || permissions.length > 0);
   els.empty.classList.toggle("hidden", sessions.length > 0);
 }
-
-/*
-function buildPermissionCard(request) {
-  const card = document.createElement("article");
-  card.className = "permission-card";
-  card.dataset.reqId = request.req_id;
-
-  const head = document.createElement("div");
-  head.className = "permission-head";
-  const project = document.createElement("strong");
-  project.className = "permission-project";
-  project.textContent = request.project;
-  project.title = request.cwd;
-  const tool = document.createElement("span");
-  tool.className = "permission-tool";
-  tool.textContent = request.tool_name;
-  head.append(project, tool);
-
-  const summary = document.createElement("div");
-  summary.className = "permission-summary";
-  summary.textContent = request.input_summary || "该工具请求本次执行权限";
-  summary.title = summary.textContent;
-
-  const actions = document.createElement("div");
-  actions.className = "permission-actions";
-  const deny = permissionButton("本次拒绝", "deny");
-  const allow = permissionButton("本次允许", "allow");
-  actions.append(deny, allow);
-
-  for (const button of [deny, allow]) {
-    button.addEventListener("click", async () => {
-      deny.disabled = true;
-      allow.disabled = true;
-      permissions = permissions.filter((item) => item.req_id !== request.req_id);
-      renderPermissions();
-      let result = null;
-      try {
-        result = await window.ccPanel.resolvePermission(request.req_id, button.dataset.decision);
-      } catch {}
-      if (!result || !result.ok) {
-        try {
-          const state = await window.ccPanel.getState();
-          applyPermissionSnapshot(state.permissions || []);
-        } catch {}
-        showToast("权限请求已失效，请在终端中处理");
-      }
-    });
-  }
-
-  card.append(head, summary, actions);
-  return card;
-}
-
-function permissionButton(label, decision) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = `permission-btn ${decision}`;
-  button.dataset.decision = decision;
-  button.textContent = label;
-  return button;
-}
-*/
 
 function buildCard(s) {
   const card = document.createElement("button");
@@ -231,11 +156,11 @@ function buildCard(s) {
 }
 
 function applySnapshot(snapshot) {
-  const changed = [];
+  let hasNotifiableChange = false;
   for (const s of snapshot) {
     const prev = prevStates.get(s.id);
     if (prev !== undefined && prev !== s.state && NOTIFY_STATES.has(s.state)) {
-      changed.push(s.id);
+      hasNotifiableChange = true;
     }
     prevStates.set(s.id, s.state);
   }
@@ -246,28 +171,8 @@ function applySnapshot(snapshot) {
   sessions = snapshot;
   render();
 
-  if (changed.length) {
-    for (const id of changed) {
-      const el = els.cards.querySelector(`[data-id="${CSS.escape(id)}"]`);
-      if (el) {
-        el.classList.remove("flash");
-        void el.offsetWidth; // restart animation
-        el.classList.add("flash");
-      }
-    }
-    if (cfg.sound) beep();
-  }
+  if (hasNotifiableChange && cfg.sound) beep();
 }
-
-// permission-request UI disabled
-// function applyPermissionSnapshot(snapshot) {
-//   const previousIds = new Set(permissions.map((item) => item.req_id));
-//   const hasNewRequest = permissionSnapshotReady && snapshot.some((item) => !previousIds.has(item.req_id));
-//   permissions = snapshot;
-//   permissionSnapshotReady = true;
-//   renderPermissions();
-//   if (hasNewRequest && cfg.sound) beep();
-// }
 
 function refreshConfigButtons() {
   els.btnSettings.classList.toggle("active", !els.settingsPanel.classList.contains("hidden"));
@@ -418,8 +323,6 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") setSettingsOpen(false);
 });
 window.ccPanel.onSessions(applySnapshot);
-// permission-request UI disabled
-// window.ccPanel.onPermissions(applyPermissionSnapshot);
 setInterval(() => refreshStateAges(), 1000);
 
 (async function init() {
@@ -434,5 +337,4 @@ setInterval(() => refreshStateAges(), 1000);
     showToast("开机自启动设置失败：" + (state.autoLaunchStatus.error || "未知错误"));
   }
   applySnapshot(state.sessions);
-  // applyPermissionSnapshot(state.permissions || []);
 })();

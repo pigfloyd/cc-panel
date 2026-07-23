@@ -8,7 +8,6 @@ const fs = require("fs");
 const http = require("http");
 const os = require("os");
 const path = require("path");
-const crypto = require("crypto");
 const { execFileSync } = require("child_process");
 
 const EVENTS = new Set([
@@ -31,10 +30,6 @@ const PORTS = [24333, 24334, 24335, 24336, 24337];
 const RUNTIME_PATH = path.join(os.homedir(), ".cc-panel", "runtime.json");
 const POST_TIMEOUT_MS = 100;
 const STDIN_TIMEOUT_MS = 400;
-const PERMISSION_POLL_MS = 250;
-const PERMISSION_DEADLINE_MS = 290 * 1000;
-const PERMISSION_FAILURE_LIMIT = 3;
-const INPUT_SUMMARY_MAX = 200;
 
 const WT_WINDOW_CLASS = "cascadia_hosting_window_class";
 const CONSOLE_WINDOW_CLASS = "consolewindowclass";
@@ -367,103 +362,6 @@ async function post(bodyObj) {
   }
 }
 
-function inputSummary(payload) {
-  const input = payload.tool_input || payload.toolInput || {};
-  const toolName = toolNameFromPayload(payload) || "";
-  let summary = "";
-
-  if (/^(Bash|Shell)$/i.test(toolName) && typeof input.command === "string") {
-    summary = input.command.split(/\r?\n/).find((line) => line.trim()) || "";
-  } else if (/^(Write|Edit|MultiEdit|Read)$/i.test(toolName)) {
-    summary = input.file_path || input.filePath || input.path || "";
-  }
-
-  if (!summary) {
-    try { summary = JSON.stringify(input); } catch {}
-  }
-  summary = String(summary || "").trim();
-  if (PROMPT_SECRET_RE.test(summary)) return "[内容包含敏感信息，已隐藏]";
-  return summary.length > INPUT_SUMMARY_MAX
-    ? `${summary.slice(0, INPUT_SUMMARY_MAX - 1)}…`
-    : summary;
-}
-
-function permissionRequest(payload, source) {
-  const cwd = payload.cwd || payload.current_working_directory || process.cwd();
-  const sessionId = sessionIdFromPayload(payload, source);
-  return {
-    v: 1,
-    type: "permission-request",
-    req_id: `${sessionId}:${process.pid}:${Date.now()}:${crypto.randomBytes(8).toString("hex")}`,
-    session_id: sessionId,
-    cwd,
-    project: path.basename(cwd) || cwd,
-    tool_name: toolNameFromPayload(payload) || "Unknown tool",
-    input_summary: inputSummary(payload),
-    ts: Date.now(),
-  };
-}
-
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function writePermissionDecision(decision) {
-  const decisionBody = { behavior: decision };
-  if (decision === "deny") decisionBody.message = "Denied from cc-panel";
-  const output = {
-    hookSpecificOutput: {
-      hookEventName: "PermissionRequest",
-      decision: decisionBody,
-    },
-  };
-  return new Promise((resolve) => process.stdout.write(JSON.stringify(output), resolve));
-}
-
-async function handlePermission(payload) {
-  const port = runtimePort();
-  if (!port) return;
-
-  const health = await requestOnce(port, { path: "/health" });
-  if (!health.ok) return;
-
-  const request = permissionRequest(payload, "claude");
-  const created = await requestOnce(port, {
-    method: "POST",
-    path: "/permission-request",
-    body: JSON.stringify(request),
-  });
-  if (!created.ok) return;
-
-  const deadline = Date.now() + PERMISSION_DEADLINE_MS;
-  let consecutiveFailures = 0;
-  while (Date.now() < deadline) {
-    const result = await requestOnce(port, {
-      path: `/permission-decision?req_id=${encodeURIComponent(request.req_id)}`,
-    });
-    if (!result.ok) {
-      consecutiveFailures += 1;
-      if (consecutiveFailures >= PERMISSION_FAILURE_LIMIT) return;
-    } else {
-      consecutiveFailures = 0;
-      try {
-        const body = JSON.parse(result.body);
-        if (body.decision === "allow" || body.decision === "deny") {
-          await writePermissionDecision(body.decision);
-          return;
-        }
-      } catch {}
-    }
-    await delay(PERMISSION_POLL_MS);
-  }
-}
-
-function shouldHandlePermission(event, source) {
-  // Disabled: panel no longer intercepts Claude permission prompts.
-  // return event === "PermissionRequest" && source === "claude";
-  return false;
-}
-
 async function main() {
   const event = process.argv[2];
   const source = process.argv[3] || "unknown";
@@ -472,11 +370,6 @@ async function main() {
   // Snapshot runs while stdin is still buffering, so its cost overlaps I/O.
   const snapshot = SNAPSHOT_EVENTS.has(event) ? getSnapshot() : null;
   const payload = await readStdinJson();
-
-  if (shouldHandlePermission(event, source)) {
-    await handlePermission(payload);
-    process.exit(0);
-  }
 
   const body = {
     v: 1,
@@ -519,10 +412,6 @@ if (require.main === module) {
 
 module.exports = {
   codexSessionIdFromTranscriptPath,
-  inputSummary,
-  permissionRequest,
   resolveFromSnapshot,
   sessionIdFromPayload,
-  writePermissionDecision,
-  shouldHandlePermission,
 };

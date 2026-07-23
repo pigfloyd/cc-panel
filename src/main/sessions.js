@@ -139,7 +139,7 @@ class SessionStore {
     }
     if (body.event === "Notification") s.message = body.message || null;
     else if (body.event !== "PreToolUse") s.message = null;
-    if (s.state === "dead" || next !== s.state) this._setState(s, next, ts);
+    if (next !== s.state) this._setState(s, next, ts);
 
     this._emit();
   }

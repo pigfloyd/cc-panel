@@ -9,7 +9,7 @@ const RUNTIME_DIR = path.join(os.homedir(), ".cc-panel");
 const RUNTIME_PATH = path.join(RUNTIME_DIR, "runtime.json");
 const BODY_LIMIT = 64 * 1024;
 
-function start(onEvent, permissionStore) {
+function start(onEvent) {
   return new Promise((resolve, reject) => {
     tryPort(0);
 
@@ -19,7 +19,7 @@ function start(onEvent, permissionStore) {
         return;
       }
       const port = PORTS[i];
-      const server = http.createServer((req, res) => handle(req, res, onEvent, permissionStore));
+      const server = http.createServer((req, res) => handle(req, res, onEvent));
       server.on("error", () => tryPort(i + 1));
       server.listen(port, "127.0.0.1", () => {
         writeRuntime(port);
@@ -29,7 +29,7 @@ function start(onEvent, permissionStore) {
   });
 }
 
-function handle(req, res, onEvent, permissionStore) {
+function handle(req, res, onEvent) {
   res.setHeader("x-cc-panel", "1");
   let url;
   try {
@@ -44,38 +44,16 @@ function handle(req, res, onEvent, permissionStore) {
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/permission-decision") {
-    const reqId = cleanString(url.searchParams.get("req_id"), 256);
-    const item = reqId && permissionStore ? permissionStore.get(reqId) : null;
-    if (!item) {
-      writeJson(res, 404, { error: "unknown_request" });
-      return;
-    }
-    writeJson(res, 200, { decision: item.decision });
-    return;
-  }
-
-  if (req.method !== "POST" || (url.pathname !== "/event" && url.pathname !== "/permission-request")) {
+  if (req.method !== "POST" || url.pathname !== "/event") {
     res.writeHead(404);
     res.end();
     return;
   }
 
   readJsonBody(req, res, (body) => {
-    if (url.pathname === "/event") {
-      try { onEvent(body); } catch (err) { console.error("[cc-panel] event error:", err); }
-      res.writeHead(200);
-      res.end("ok");
-      return;
-    }
-
-    const request = normalizePermissionRequest(body);
-    if (!request || !permissionStore) {
-      writeJson(res, 400, { error: "invalid_request" });
-      return;
-    }
-    permissionStore.add(request);
-    writeJson(res, 200, { ok: true });
+    try { onEvent(body); } catch (err) { console.error("[cc-panel] event error:", err); }
+    res.writeHead(200);
+    res.end("ok");
   });
 }
 
@@ -111,31 +89,6 @@ function readJsonBody(req, res, onBody) {
   req.on("error", () => {});
 }
 
-function normalizePermissionRequest(body) {
-  if (body.type !== "permission-request") return null;
-  const reqId = cleanString(body.req_id, 256);
-  const sessionId = cleanString(body.session_id, 512);
-  const toolName = cleanString(body.tool_name, 120);
-  if (!reqId || !sessionId || !toolName) return null;
-
-  return {
-    v: 1,
-    type: "permission-request",
-    req_id: reqId,
-    session_id: sessionId,
-    project: cleanString(body.project, 240) || "(unknown)",
-    cwd: cleanString(body.cwd, 2048) || "",
-    tool_name: toolName,
-    input_summary: cleanString(body.input_summary, 500) || "",
-    ts: Number.isFinite(Number(body.ts)) ? Number(body.ts) : Date.now(),
-  };
-}
-
-function cleanString(value, maxLength) {
-  if (typeof value !== "string") return "";
-  return value.trim().slice(0, maxLength);
-}
-
 function writeJson(res, status, body) {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
@@ -154,4 +107,4 @@ function clearRuntime() {
   try { fs.unlinkSync(RUNTIME_PATH); } catch {}
 }
 
-module.exports = { start, clearRuntime, handle, normalizePermissionRequest };
+module.exports = { start, clearRuntime, handle };
