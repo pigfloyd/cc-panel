@@ -40,6 +40,17 @@ class SessionStore {
     const rawId = body.session_id;
     const ts = Number(body.ts) || Date.now();
 
+    // Process discovery runs repeatedly as a fallback for missing hooks. If a
+    // real hook card already represents this process, enrich that card instead
+    // of adding a second captured card or resetting its state to idle.
+    if (body.captured) {
+      const known = this._findRealSessionForCapture(body);
+      if (known) {
+        if (this._mergeCapturedIdentity(known, body)) this._emit();
+        return;
+      }
+    }
+
     let id = this._resolveSessionId(rawId);
     let s = this.sessions.get(id);
     if (!s && !body.captured && SESSION_IDENTITY_EVENTS.has(body.event)) {
@@ -183,9 +194,9 @@ class SessionStore {
   _adoptMappedSession(rawId, body, ts) {
     const candidates = [...this.sessions.entries()].filter(([otherId, other]) => {
       if (otherId.startsWith("captured:")) return false;
+      if (!sameClient(other.client, body.client)) return false;
       if (sameWindow(other.wt_hwnd, body.wt_hwnd) &&
           other.windowMapping === "exact" && body.window_mapping === "exact") return true;
-      if (!sameClient(other.client, body.client)) return false;
       if (samePid(other.agent_pid, body.agent_pid)) return true;
       return samePid(other.terminal_pid, body.terminal_pid) &&
         (!other.wt_hwnd || !body.wt_hwnd || sameWindow(other.wt_hwnd, body.wt_hwnd));
@@ -216,6 +227,55 @@ class SessionStore {
       if (otherId !== canonicalId) this.sessionAliases.set(otherId, canonicalId);
     }
     return primary;
+  }
+
+  _findRealSessionForCapture(body) {
+    const candidates = [...this.sessions.entries()].filter(([id, session]) =>
+      !id.startsWith("captured:") && sameClient(session.client, body.client)
+    );
+    const match = uniqueMatch(candidates, (session) => samePid(session.agent_pid, body.agent_pid)) ||
+      uniqueMatch(candidates, (session) => samePid(session.terminal_pid, body.terminal_pid)) ||
+      uniqueMatch(candidates, (session) =>
+        sameWindow(session.wt_hwnd, body.wt_hwnd) && identitiesDoNotConflict(session, body)
+      ) ||
+      uniqueMatch(candidates, (session) =>
+        sameCwd(session.cwd, body.cwd) && identitiesDoNotConflict(session, body)
+      );
+    return match ? match[1] : null;
+  }
+
+  _mergeCapturedIdentity(session, body) {
+    let changed = false;
+    if (!session.cwd && body.cwd) {
+      session.cwd = body.cwd;
+      session.project = path.basename(body.cwd) || body.cwd;
+      changed = true;
+    }
+    if (!session.client && body.client) {
+      session.client = body.client;
+      changed = true;
+    }
+    if (!session.agent_pid && body.agent_pid) {
+      session.agent_pid = body.agent_pid;
+      changed = true;
+    }
+    if (!session.terminal_pid && body.terminal_pid) {
+      session.terminal_pid = body.terminal_pid;
+      changed = true;
+    }
+
+    const exactUpgrade = body.wt_hwnd && body.window_mapping === "exact" &&
+      session.windowMapping !== "exact";
+    if (body.wt_hwnd && (!session.wt_hwnd || exactUpgrade)) {
+      session.wt_hwnd = String(body.wt_hwnd);
+      session.windowMapping = mergeWindowMapping(session.windowMapping, body.window_mapping);
+      changed = true;
+    }
+    if (body.wt_hwnd && sameWindow(session.wt_hwnd, body.wt_hwnd) && session.windowAlive !== true) {
+      session.windowAlive = true;
+      changed = true;
+    }
+    return changed;
   }
 
   _deleteSession(id) {

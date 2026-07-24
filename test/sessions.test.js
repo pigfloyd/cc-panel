@@ -426,6 +426,79 @@ test("keeps one card when exact mappings identify the same terminal window", () 
   }
 });
 
+test("keeps Claude and Codex cards separate when they share an exact terminal window", () => {
+  const store = new SessionStore();
+  try {
+    store.handleEvent({
+      session_id: "codex:session",
+      event: "SessionStart",
+      client: "codex",
+      agent_pid: 41,
+      terminal_pid: 201,
+      wt_hwnd: "101",
+      window_mapping: "exact",
+      ts: 100,
+    });
+    store.handleEvent({
+      session_id: "claude:session",
+      event: "SessionStart",
+      client: "claude",
+      agent_pid: 42,
+      terminal_pid: 202,
+      wt_hwnd: "101",
+      window_mapping: "exact",
+      ts: 200,
+    });
+
+    assert.deepEqual(
+      store.snapshot().map((session) => [session.id, session.client]),
+      [["codex:session", "codex"], ["claude:session", "claude"]]
+    );
+  } finally {
+    store.dispose();
+  }
+});
+
+test("does not add a captured duplicate after a real hook session exists", () => {
+  const store = new SessionStore();
+  try {
+    store.handleEvent({
+      session_id: "claude:real-session",
+      event: "UserPromptSubmit",
+      client: "claude",
+      agent_pid: 42,
+      ts: 100,
+    });
+    store.handleEvent({
+      session_id: "captured:claude:42",
+      event: "SessionStart",
+      client: "claude",
+      agent_pid: 42,
+      terminal_pid: 202,
+      wt_hwnd: "101",
+      window_mapping: "exact",
+      cwd: "C:\\work\\project",
+      captured: true,
+      ts: 200,
+    });
+
+    assert.deepEqual(store.snapshot(), [{
+      id: "claude:real-session",
+      project: "project",
+      cwd: "C:\\work\\project",
+      client: "claude",
+      state: "working",
+      stateSince: 100,
+      currentTool: null,
+      lastPrompt: null,
+      message: null,
+      hasWindow: true,
+    }]);
+  } finally {
+    store.dispose();
+  }
+});
+
 test("replaces a startup-captured card when wrapper agent PIDs differ", () => {
   const store = new SessionStore();
   try {

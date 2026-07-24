@@ -24,8 +24,11 @@ let cfg = config.load();
 let saveBoundsTimer = null;
 let hookInstallStatus = null;
 let autoLaunchStatus = null;
+let sessionCaptureTimer = null;
+let sessionCapturePromise = null;
 
 const TERMINAL_COMMANDS = new Set(["codex", "claude"]);
+const SESSION_CAPTURE_INTERVAL_MS = 5000;
 
 function normalizeTerminalCommand(value) {
   return TERMINAL_COMMANDS.has(value) ? value : "claude";
@@ -61,15 +64,26 @@ async function main() {
   autoLaunchStatus = setAutoLaunch(cfg.autoLaunch);
   createWindow();
   registerIpc();
-  void captureRunningSessions(store).catch((err) => {
-    console.error("[cc-panel] startup capture failed:", String(err.message || err));
-  });
+  void refreshRunningSessions();
+  sessionCaptureTimer = setInterval(() => void refreshRunningSessions(), SESSION_CAPTURE_INTERVAL_MS);
 
   app.on("window-all-closed", () => {
+    clearInterval(sessionCaptureTimer);
     server.clearRuntime();
     store.dispose();
     app.quit();
   });
+}
+
+function refreshRunningSessions() {
+  if (sessionCapturePromise) return sessionCapturePromise;
+  sessionCapturePromise = captureRunningSessions(store)
+    .catch((err) => {
+      console.error("[cc-panel] session capture failed:", String(err.message || err));
+      return [];
+    })
+    .finally(() => { sessionCapturePromise = null; });
+  return sessionCapturePromise;
 }
 
 function installHooks() {

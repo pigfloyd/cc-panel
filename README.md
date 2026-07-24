@@ -20,7 +20,7 @@ npm install
 npm start
 ```
 
-启动 cc-panel 后会自动安装 hooks：把 cc-panel 的 hook 条目追加到 Claude Code 的 `~/.claude/settings.json`（如果存在）以及 Codex CLI 的 `~/.codex/hooks.json`（保留已有的其他 hooks，首次写入前自动备份为 `*.cc-panel-bak`）。之后**新启动**的 `claude` / `codex` 会话会自动出现在面板上。
+启动 cc-panel 后会自动安装 hooks：把 cc-panel 的 hook 条目追加到 Claude Code 的 `~/.claude/settings.json`（如果存在）以及 Codex CLI 的 `~/.codex/hooks.json`（保留已有的其他 hooks，首次写入前自动备份为 `*.cc-panel-bak`）。之后**新启动**的 `claude` / `codex` 会话会自动出现在面板上；面板也会每 5 秒增量扫描一次进程，避免 hook 缺失或尚未生效时漏掉新终端。
 
 Codex CLI 的非托管 hooks 需要在 Codex 里信任：启动 `codex` 后按提示运行 `/hooks`，审核并信任 cc-panel hook。hook 内容更新后需要重新信任。
 
@@ -41,7 +41,7 @@ claude / codex (终端窗口) ── hooks ──► hook/cc-panel-hook.js ─�
 
 ## 已知限制
 
-- 面板启动**之前**就在跑的会话：卡片会在下一个 hook 事件到达时出现，但窗口映射要等你下一次提交 prompt 才建立（此前点击提示"无窗口"）。
+- hook 缺失或尚未生效：进程扫描仍会创建卡片并映射窗口，但工作中、等待输入等实时状态仍依赖 hook 事件。
 - claude / codex 跑在 VS Code / 其他未识别终端里：状态正常显示，但没有可聚焦窗口，卡片标"无窗口"。
 - 手动把多个 agent 放在同一个 Windows Terminal 窗口的不同标签页时，Windows 只提供共享的顶层窗口句柄，卡片无法切换到指定标签页；请使用面板的新建终端按钮或分别打开独立窗口。
 - 提交 prompt 后瞬间切走窗口（<300ms）可能抓错前台窗口——下次提交会自动纠正。
