@@ -236,6 +236,10 @@ class SessionStore {
     const match = uniqueMatch(candidates, (session) => samePid(session.agent_pid, body.agent_pid)) ||
       uniqueMatch(candidates, (session) => samePid(session.terminal_pid, body.terminal_pid)) ||
       uniqueMatch(candidates, (session) =>
+        sameWindow(session.wt_hwnd, body.wt_hwnd) &&
+        session.windowMapping === "exact" && body.window_mapping === "exact"
+      ) ||
+      uniqueMatch(candidates, (session) =>
         sameWindow(session.wt_hwnd, body.wt_hwnd) && identitiesDoNotConflict(session, body)
       ) ||
       uniqueMatch(candidates, (session) =>
@@ -328,12 +332,17 @@ class SessionStore {
       sameClient(other.client, identity.client)
     );
 
-    // Process IDs are the strongest identity signals. HWND and cwd are useful
-    // fallbacks when a hook runner is detached from the original process tree,
-    // but only when exactly one captured card matches: Windows Terminal tabs
-    // can share a window and several agents can run from the same directory.
+    // Process IDs are the strongest identity signals. An exact mapping proves
+    // that both snapshots belong to the same terminal window even when hook
+    // runners report different wrapper processes. Other HWND and cwd matches
+    // remain conflict-checked because foreground/fallback mappings can be
+    // shared by multiple agents.
     const match = uniqueMatch(captured, (other) => samePid(other.agent_pid, identity.agent_pid)) ||
       uniqueMatch(captured, (other) => samePid(other.terminal_pid, identity.terminal_pid)) ||
+      uniqueMatch(captured, (other) =>
+        sameWindow(other.wt_hwnd, identity.wt_hwnd) &&
+        other.windowMapping === "exact" && identity.window_mapping === "exact"
+      ) ||
       uniqueMatch(captured, (other) =>
         sameWindow(other.wt_hwnd, identity.wt_hwnd) &&
         identitiesDoNotConflict(other, identity, ["agent_pid", "terminal_pid"])

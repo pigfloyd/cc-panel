@@ -556,6 +556,46 @@ test("replaces a startup-captured card when wrapper agent PIDs differ", () => {
   }
 });
 
+test("keeps one card when a captured Codex session is cleared in the same exact terminal", () => {
+  const store = new SessionStore();
+  try {
+    const captured = {
+      session_id: "captured:codex:42",
+      event: "SessionStart",
+      client: "codex",
+      agent_pid: 42,
+      terminal_pid: 7,
+      wt_hwnd: "101",
+      window_mapping: "exact",
+      cwd: "C:\\work\\project",
+      captured: true,
+      ts: 100,
+    };
+    store.handleEvent(captured);
+    store.handleEvent({
+      session_id: "codex:new-session",
+      event: "SessionStart",
+      client: "codex",
+      agent_pid: 43,
+      terminal_pid: 8,
+      wt_hwnd: "101",
+      window_mapping: "exact",
+      cwd: "C:\\work\\project",
+      source: "clear",
+      ts: 200,
+    });
+
+    assert.deepEqual(store.snapshot().map((session) => session.id), ["codex:new-session"]);
+
+    // The periodic process scan still sees the original process identity.
+    // It must enrich the real card instead of recreating the captured card.
+    store.handleEvent({ ...captured, ts: 300 });
+    assert.deepEqual(store.snapshot().map((session) => session.id), ["codex:new-session"]);
+  } finally {
+    store.dispose();
+  }
+});
+
 test("creates a restarted Codex session after the captured agent exits", () => {
   const store = new SessionStore();
   store.dispose();

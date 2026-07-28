@@ -11,8 +11,11 @@ const STATE_LABELS = {
 const orderSessions = createStableSessionOrder();
 const { clientLabel, stateAgeLabel } = sessionMeta;
 const { summarizeSessions } = sessionSummary;
-const initialCompactMode = new URLSearchParams(window.location.search).get("compact") === "1";
+const query = new URLSearchParams(window.location.search);
+const isDemoMode = query.get("demo") === "1";
+const initialCompactMode = !isDemoMode && query.get("compact") === "1";
 document.body.classList.toggle("compact-mode", initialCompactMode);
+document.body.classList.toggle("demo-mode", isDemoMode);
 
 const els = {
   cards: document.getElementById("cards"),
@@ -118,6 +121,10 @@ function refreshEmptyState() {
 }
 
 async function focusSession(s) {
+  if (isDemoMode) {
+    showToast(`${clientLabel(s)} Demo 会话`);
+    return;
+  }
   if (!s.hasWindow) {
     showToast("未找到该会话的终端窗口");
     return;
@@ -238,6 +245,10 @@ function applyCompactMode(compact) {
 }
 
 async function updateCompactMode(compact) {
+  if (isDemoMode) {
+    applyCompactMode(compact);
+    return;
+  }
   els.btnCompact.disabled = true;
   els.btnExpand.disabled = true;
   try {
@@ -276,6 +287,11 @@ function renderTerminalOptions() {
 
 async function scanTerminalApps() {
   if (terminalScanPromise) return terminalScanPromise;
+  if (isDemoMode) {
+    terminalApps = [{ name: "Windows Terminal", executable: "C:\\Program Files\\WindowsApps\\wt.exe" }];
+    renderTerminalOptions();
+    return terminalApps;
+  }
   els.settingTerminalExecutable.disabled = true;
   terminalScanPromise = (async () => {
     try {
@@ -301,6 +317,10 @@ function setSettingsOpen(open) {
 }
 
 async function openTerminal(terminalCommand) {
+  if (isDemoMode) {
+    showToast(`${terminalCommand === "codex" ? "Codex CLI" : "Claude Code"} Demo`);
+    return;
+  }
   els.btnClaudeTerminal.disabled = true;
   els.btnCodexTerminal.disabled = true;
   try {
@@ -325,6 +345,10 @@ els.btnCompact.addEventListener("click", () => updateCompactMode(true));
 els.btnExpand.addEventListener("click", () => updateCompactMode(false));
 
 els.btnCollapseTerminals.addEventListener("click", async () => {
+  if (isDemoMode) {
+    showToast("Demo 模式不会操作终端窗口");
+    return;
+  }
   els.btnCollapseTerminals.disabled = true;
   try {
     const result = await window.ccPanel.minimizeAllTerminals();
@@ -344,16 +368,31 @@ els.btnCollapseTerminals.addEventListener("click", async () => {
 
 
 els.settingAlwaysOnTop.addEventListener("change", async () => {
+  if (isDemoMode) {
+    cfg.alwaysOnTop = els.settingAlwaysOnTop.checked;
+    refreshConfigButtons();
+    return;
+  }
   cfg = await window.ccPanel.setConfig({ alwaysOnTop: els.settingAlwaysOnTop.checked });
   refreshConfigButtons();
 });
 
 els.settingSound.addEventListener("change", async () => {
+  if (isDemoMode) {
+    cfg.sound = els.settingSound.checked;
+    refreshConfigButtons();
+    return;
+  }
   cfg = await window.ccPanel.setConfig({ sound: els.settingSound.checked });
   refreshConfigButtons();
 });
 
 els.settingTerminalExecutable.addEventListener("change", async () => {
+  if (isDemoMode) {
+    showToast("Demo 模式不会修改终端设置");
+    renderTerminalOptions();
+    return;
+  }
   els.settingTerminalExecutable.disabled = true;
   try {
     const selected = els.settingTerminalExecutable.value;
@@ -377,6 +416,11 @@ els.btnSettings.addEventListener("click", () => {
 });
 
 els.settingAutoLaunch.addEventListener("change", async () => {
+  if (isDemoMode) {
+    cfg.autoLaunch = els.settingAutoLaunch.checked;
+    refreshConfigButtons();
+    return;
+  }
   cfg = await window.ccPanel.setConfig({ autoLaunch: els.settingAutoLaunch.checked });
   refreshConfigButtons();
   if (cfg.autoLaunchError) {
@@ -393,10 +437,25 @@ document.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") setSettingsOpen(false);
 });
-window.ccPanel.onSessions(applySnapshot);
+if (!isDemoMode) window.ccPanel.onSessions(applySnapshot);
 setInterval(() => refreshStateAges(), 1000);
 
 (async function init() {
+  if (isDemoMode) {
+    cfg = {
+      compactMode: false,
+      alwaysOnTop: false,
+      sound: false,
+      autoLaunch: false,
+      terminalCommand: "claude",
+      terminalExecutable: null,
+    };
+    applyCompactMode(false);
+    refreshConfigButtons();
+    await scanTerminalApps();
+    applySnapshot(demoData.createDemoSessions());
+    return;
+  }
   const state = await window.ccPanel.getState();
   cfg = state.config;
   applyCompactMode(cfg.compactMode);

@@ -21,9 +21,23 @@ const {
   ensureVisibleBounds,
 } = require("./window-bounds");
 
+const demoMode = process.argv.includes("--demo");
+if (demoMode) {
+  app.setPath("userData", `${app.getPath("userData")}-demo`);
+}
+
 let win = null;
 let store = null;
-let cfg = config.load();
+let cfg = demoMode
+  ? {
+      compactMode: false,
+      alwaysOnTop: false,
+      sound: false,
+      autoLaunch: false,
+      terminalCommand: "claude",
+      terminalExecutable: null,
+    }
+  : config.load();
 let saveBoundsTimer = null;
 let hookInstallStatus = null;
 let autoLaunchStatus = null;
@@ -54,6 +68,12 @@ if (!gotLock) {
 }
 
 async function main() {
+  if (demoMode) {
+    createWindow();
+    app.on("window-all-closed", () => app.quit());
+    return;
+  }
+
   store = new SessionStore((snapshot) => {
     if (win && !win.isDestroyed()) win.webContents.send("sessions", snapshot);
   });
@@ -152,7 +172,7 @@ function defaultBounds(displays = screen.getAllDisplays()) {
   const secondary = displays.find((d) => d.id !== primary.id);
   const wa = (secondary || primary).workArea;
   const width = Math.min(380, wa.width);
-  const height = Math.min(940, wa.height);
+  const height = Math.min(demoMode ? 720 : 940, wa.height);
   return { x: wa.x + wa.width - width, y: wa.y, width, height };
 }
 
@@ -174,8 +194,8 @@ function createWindow() {
       backgroundMaterial: "mica",
     } : {}),
     autoHideMenuBar: true,
-    alwaysOnTop: !!cfg.alwaysOnTop,
-    title: "cc-panel",
+    alwaysOnTop: demoMode ? false : !!cfg.alwaysOnTop,
+    title: demoMode ? "cc-panel demo" : "cc-panel",
     webPreferences: {
       preload: path.join(__dirname, "..", "preload.js"),
       contextIsolation: true,
@@ -183,13 +203,16 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, "..", "renderer", "index.html"), {
-    query: { compact: isCompact ? "1" : "0" },
+    query: {
+      compact: isCompact ? "1" : "0",
+      demo: demoMode ? "1" : "0",
+    },
   });
 
   const persistBounds = () => {
     clearTimeout(saveBoundsTimer);
     saveBoundsTimer = setTimeout(() => {
-      if (!win || win.isDestroyed() || win.isMinimized() || cfg.compactMode) return;
+      if (demoMode || !win || win.isDestroyed() || win.isMinimized() || cfg.compactMode) return;
       cfg.bounds = win.getBounds();
       config.save(cfg);
     }, 500);

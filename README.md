@@ -21,6 +21,14 @@ npm install
 npm start
 ```
 
+用于 README 或发布页截图时，可以启动完全隔离的假数据页面：
+
+```powershell
+npm run demo
+```
+
+Demo 模式不会启动本地 hook 服务、安装 hooks、读取真实会话或修改正式配置，可以和正式面板同时运行。
+
 启动 cc-panel 后会自动安装 hooks：把 cc-panel 的 hook 条目追加到 Claude Code 的 `~/.claude/settings.json`（如果存在）以及 Codex CLI 的 `~/.codex/hooks.json`（保留已有的其他 hooks，首次写入前自动备份为 `*.cc-panel-bak`）。之后**新启动**的 `claude` / `codex` 会话会读取这些 hooks。面板每 5 秒自检一次，配置被其他程序覆盖后会自动补回缺失条目；也会按相同周期增量扫描进程，避免 hook 尚未生效时漏掉新终端。
 
 Codex CLI 的非托管 hooks 需要在 Codex 里信任：启动 `codex` 后按提示运行 `/hooks`，审核并信任 cc-panel hook。hook 内容更新后需要重新信任。
