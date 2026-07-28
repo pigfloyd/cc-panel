@@ -16,5 +16,6 @@ test("creates screenshot-safe demo sessions for both supported clients", () => {
   );
   assert.ok(sessions.every((session) => session.hasWindow));
   assert.ok(sessions.every((session) => session.stateSince <= now));
+  assert.ok(sessions.every((session) => Number.isInteger(session.terminalPid)));
   assert.ok(sessions.every((session) => !session.cwd.includes("ourchem")));
 });

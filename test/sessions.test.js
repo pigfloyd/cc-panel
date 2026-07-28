@@ -194,6 +194,54 @@ test("marks a Codex request_user_input call as waiting for input until answered"
   }
 });
 
+test("keeps a Codex question waiting when a delayed PreToolUse hook arrives", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-panel-question-race-"));
+  const transcript = path.join(tempDir, "codex.jsonl");
+
+  try {
+    fs.writeFileSync(transcript, `${JSON.stringify({ type: "session_start" })}\n`);
+    const store = new SessionStore();
+    store.dispose();
+    try {
+      store.handleEvent({
+        session_id: "codex:question-race",
+        event: "UserPromptSubmit",
+        client: "codex",
+        transcript_path: transcript,
+        ts: 100,
+      });
+      fs.appendFileSync(transcript, `${JSON.stringify({
+        timestamp: "2026-07-17T01:25:00.441Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "request_user_input",
+          call_id: "call_question_race",
+        },
+      })}\n`);
+
+      store._pollTranscripts();
+      assert.equal(store.snapshot()[0].state, "needs_input");
+
+      store.handleEvent({
+        session_id: "codex:question-race",
+        event: "PreToolUse",
+        client: "codex",
+        tool_name: "request_user_input",
+        ts: Date.parse("2026-07-17T01:25:01.441Z"),
+      });
+      assert.equal(store.snapshot()[0].state, "working");
+
+      store._pollTranscripts();
+      assert.equal(store.snapshot()[0].state, "needs_input");
+    } finally {
+      store.dispose();
+    }
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("returns interrupted sessions to idle when the Stop hook is absent", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-panel-transcript-"));
   const records = [
@@ -510,6 +558,7 @@ test("does not add a captured duplicate after a real hook session exists", () =>
       currentTool: null,
       lastPrompt: null,
       message: null,
+      terminalPid: 202,
       hasWindow: true,
     }]);
   } finally {
@@ -549,6 +598,7 @@ test("replaces a startup-captured card when wrapper agent PIDs differ", () => {
       currentTool: null,
       lastPrompt: null,
       message: null,
+      terminalPid: 7,
       hasWindow: true,
     }]);
   } finally {

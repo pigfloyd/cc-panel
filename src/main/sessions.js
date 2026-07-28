@@ -403,12 +403,19 @@ class SessionStore {
 
       if (waitingForQuestion !== wasWaitingForQuestion) {
         s.waitingForTranscriptQuestion = waitingForQuestion;
+        changed = true;
+      }
+
+      // Hook delivery and transcript polling are asynchronous. A delayed
+      // PreToolUse can overwrite needs_input after the question was detected,
+      // so enforce the state while the call remains unanswered instead of
+      // only reacting when the pending-call boolean changes.
+      if (waitingForQuestion && s.state === "working") {
         const questionTs = Number(s.transcriptQuestionSince) || Date.now();
-        if (waitingForQuestion && s.state === "working") {
-          this._setState(s, "needs_input", Math.max(s.lastEventTs, questionTs));
-        } else if (!waitingForQuestion && wasWaitingForQuestion && s.state === "needs_input") {
-          this._setState(s, "working", Math.max(s.lastEventTs, Date.now()));
-        }
+        this._setState(s, "needs_input", Math.max(s.lastEventTs, questionTs));
+        changed = true;
+      } else if (!waitingForQuestion && wasWaitingForQuestion && s.state === "needs_input") {
+        this._setState(s, "working", Math.max(s.lastEventTs, Date.now()));
         changed = true;
       }
 
@@ -474,6 +481,7 @@ class SessionStore {
       currentTool: s.currentTool,
       lastPrompt: s.lastPrompt,
       message: s.message,
+      terminalPid: s.terminal_pid,
       hasWindow: !!s.wt_hwnd && s.windowAlive !== false,
     }));
   }

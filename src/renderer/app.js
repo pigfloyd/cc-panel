@@ -82,7 +82,13 @@ function detailText(s) {
   if (s.state === "needs_input" && s.message) return s.message;
   if (s.state === "working" && s.currentTool) return `工具：${s.currentTool}`;
   if (s.lastPrompt) return s.lastPrompt;
-  return s.cwd || "";
+  return "";
+}
+
+function directoryName(s) {
+  if (s.project) return s.project;
+  const parts = String(s.cwd || "").split(/[\\/]+/).filter(Boolean);
+  return parts.at(-1) || "(unknown)";
 }
 
 function refreshStateAges(now = Date.now()) {
@@ -151,11 +157,14 @@ function buildCard(s) {
     indicator.setAttribute("aria-hidden", "true");
     head.append(indicator);
   }
-  const project = document.createElement("span");
-  project.className = "project";
-  project.textContent = s.project;
-  project.title = s.cwd;
-  head.append(project);
+  const title = document.createElement("span");
+  title.className = "card-title";
+  title.textContent = directoryName(s);
+  const directoryPath = document.createElement("span");
+  directoryPath.className = "directory-path";
+  directoryPath.textContent = s.cwd || "";
+  directoryPath.title = s.cwd || "";
+  head.append(title, directoryPath);
 
   const meta = document.createElement("div");
   meta.className = "meta";
@@ -179,9 +188,9 @@ function buildCard(s) {
   context.className = "session-context";
   const client = document.createElement("span");
   client.textContent = clientLabel(s);
-  const separator = document.createElement("span");
-  separator.className = "context-separator";
-  separator.textContent = "·";
+  const terminal = document.createElement("span");
+  terminal.className = "terminal-number";
+  terminal.textContent = s.terminalPid ? `终端 #${s.terminalPid}` : "终端 --";
   const elapsed = document.createElement("span");
   elapsed.className = "state-age";
   elapsed.dataset.state = s.state;
@@ -190,7 +199,7 @@ function buildCard(s) {
   elapsed.title = s.stateSince
     ? `当前状态始于 ${new Date(s.stateSince).toLocaleString()}`
     : "";
-  context.append(client, separator, elapsed);
+  context.append(client, createContextSeparator(), terminal, createContextSeparator(), elapsed);
   card.append(context);
 
   const detailStr = detailText(s);
@@ -205,6 +214,13 @@ function buildCard(s) {
   card.addEventListener("click", () => focusSession(s));
 
   return card;
+}
+
+function createContextSeparator() {
+  const separator = document.createElement("span");
+  separator.className = "context-separator";
+  separator.textContent = "·";
+  return separator;
 }
 
 function applySnapshot(snapshot) {
