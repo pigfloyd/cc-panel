@@ -7,14 +7,26 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <section id="compact-view" class="compact-view" aria-label="会话摘要">
+    <button id="btn-expand" class="compact-summary" type="button" title="恢复完整模式">
+      <span id="compact-status" class="compact-status" aria-hidden="true"></span>
+      <span class="compact-copy">
+        <strong id="compact-title">暂无会话</strong>
+        <span id="compact-detail">等待会话启动</span>
+      </span>
+      <span id="compact-attention" class="compact-attention hidden"></span>
+      <span class="compact-expand" aria-hidden="true">&#8599;</span>
+    </button>
+  </section>
   <main id="cards"></main>
   <div id="empty" class="empty hidden">
     <p>还没有 Claude Code 或 Codex 会话</p>
     <p class="hint">打开终端后启动 <code>claude</code> 或 <code>codex</code>，<br/>会话卡片会自动出现在这里</p>
   </div>
   <nav class="bottom-toolbar" aria-label="终端操作">
-    <button id="btn-settings" class="icon-btn" type="button" title="设置">⚙</button>
-    <button id="btn-collapse-terminals" class="toolbar-btn toolbar-btn-secondary" type="button">收起所有终端窗口</button>
+    <button id="btn-settings" class="icon-btn" type="button" title="设置" aria-label="设置">&#9881;</button>
+    <button id="btn-compact" class="icon-btn" type="button" title="缩小模式" aria-label="进入缩小模式">&#8601;</button>
+    <button id="btn-collapse-terminals" class="icon-btn" type="button" title="收起所有终端窗口" aria-label="收起所有终端窗口">&#8212;</button>
     <div class="new-terminal-control">
       <button id="btn-claude-terminal" class="toolbar-btn toolbar-btn-primary" type="button">Claude Code</button>
       <button id="btn-codex-terminal" class="toolbar-btn toolbar-btn-primary" type="button">Codex CLI</button>
@@ -43,6 +55,7 @@
   <div id="toast" class="toast hidden"></div>
   <script src="session-order.js"></script>
   <script src="session-meta.js"></script>
+  <script src="session-summary.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

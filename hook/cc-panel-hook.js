@@ -8,7 +8,7 @@ const fs = require("fs");
 const http = require("http");
 const os = require("os");
 const path = require("path");
-const { execFileSync } = require("child_process");
+const { execFileSync, execFile } = require("child_process");
 
 const EVENTS = new Set([
   "SessionStart",
@@ -157,6 +157,37 @@ function getSnapshot() {
   } catch {
     return null;
   }
+}
+
+function getSnapshotAsync() {
+  return new Promise((resolve) => {
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", PS_SNAPSHOT_SCRIPT],
+      { encoding: "utf8", timeout: 3000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+      (err, out) => {
+        if (err) { resolve(null); return; }
+        try {
+          const parsed = JSON.parse((out || "").trim());
+          const list = Array.isArray(parsed.processes) ? parsed.processes : (parsed.processes ? [parsed.processes] : []);
+          const procs = new Map();
+          for (const p of list) {
+            const pid = Number(p && p.ProcessId);
+            if (!Number.isFinite(pid)) continue;
+            procs.set(pid, {
+              name: typeof p.Name === "string" ? p.Name.toLowerCase() : "",
+              ppid: Number(p.ParentProcessId) || 0,
+              commandLine: typeof p.CommandLine === "string" ? p.CommandLine : "",
+            });
+          }
+          const windows = Array.isArray(parsed.windows) ? parsed.windows : (parsed.windows ? [parsed.windows] : []);
+          resolve({ procs, windows, foreground: parsed.foreground || null });
+        } catch {
+          resolve(null);
+        }
+      }
+    );
+  });
 }
 
 // Walk up from our parent to find the agent process and hosting terminal. The
@@ -367,9 +398,11 @@ async function main() {
   const source = process.argv[3] || "unknown";
   if (!EVENTS.has(event)) process.exit(0);
 
-  // Snapshot runs while stdin is still buffering, so its cost overlaps I/O.
-  const snapshot = SNAPSHOT_EVENTS.has(event) ? getSnapshot() : null;
-  const payload = await readStdinJson();
+  // Run snapshot and stdin read in parallel so their costs overlap.
+  const [snapshot, payload] = await Promise.all([
+    SNAPSHOT_EVENTS.has(event) ? getSnapshotAsync() : Promise.resolve(null),
+    readStdinJson(),
+  ]);
 
   const body = {
     v: 1,

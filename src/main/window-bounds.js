@@ -1,5 +1,7 @@
 const MIN_WINDOW_WIDTH = 300;
 const MIN_WINDOW_HEIGHT = 400;
+const COMPACT_WINDOW_WIDTH = 300;
+const COMPACT_WINDOW_HEIGHT = 108;
 
 function isRect(rect) {
   return rect
@@ -32,6 +34,19 @@ function clampToWorkArea(bounds, workArea) {
   };
 }
 
+function compactBounds(expandedBounds, workArea) {
+  const width = Math.min(COMPACT_WINDOW_WIDTH, workArea.width);
+  const height = Math.min(COMPACT_WINDOW_HEIGHT, workArea.height);
+  const right = expandedBounds.x + expandedBounds.width;
+
+  return {
+    x: clamp(Math.round(right - width), workArea.x, workArea.x + workArea.width - width),
+    y: clamp(Math.round(expandedBounds.y), workArea.y, workArea.y + workArea.height - height),
+    width,
+    height,
+  };
+}
+
 function ensureVisibleBounds(savedBounds, displays, fallbackBounds) {
   if (!isRect(savedBounds)) return fallbackBounds;
 
@@ -56,5 +71,8 @@ function ensureVisibleBounds(savedBounds, displays, fallbackBounds) {
 module.exports = {
   MIN_WINDOW_WIDTH,
   MIN_WINDOW_HEIGHT,
+  COMPACT_WINDOW_WIDTH,
+  COMPACT_WINDOW_HEIGHT,
+  compactBounds,
   ensureVisibleBounds,
 };

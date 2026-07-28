@@ -613,9 +613,18 @@ function parseTranscriptLine(line) {
   const codexInterrupted = entry && entry.type === "event_msg" &&
     payload && payload.type === "turn_aborted";
   const claudeContent = entry && entry.type === "user" && entry.message && entry.message.content;
+  // Claude Code writes two interrupt string variants depending on context:
+  // 1. Plain Ctrl+C:      "[Requête   interrompue  par l'utilisateur]"
+  // 2. Tool-use interrupt: "[Requête interrompue par l'utilisateur  pour  utilisation  d'outil]"
+  // Older / English-locale builds used:  "[Request interrupted by user]"
+  const isInterruptText = (text) =>
+    text === "[Requête   interrompue  par l'utilisateur]" ||
+    text === "[Requête interrompue par l'utilisateur  pour  utilisation  d'outil]" ||
+    text === "[Request interrupted by user]";
+
   const claudeInterrupted = (Array.isArray(claudeContent) && claudeContent.some((item) =>
-    item && item.type === "text" && item.text === "[Request interrupted by user]"
-  )) || claudeContent === "[Request interrupted by user]";
+    item && item.type === "text" && isInterruptText(item.text)
+  )) || (typeof claudeContent === "string" && isInterruptText(claudeContent));
   if (!codexInterrupted && !claudeInterrupted) {
     return {
       valid: true,

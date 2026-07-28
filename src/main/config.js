@@ -9,6 +9,7 @@ const LEGACY_CONFIG_PATH = path.join(os.homedir(), ".tpanel", "config.json");
 
 const DEFAULTS = {
   bounds: null,          // {x,y,width,height}
+  compactMode: false,
   alwaysOnTop: true,
   sound: false,
   autoLaunch: true,

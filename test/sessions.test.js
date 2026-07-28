@@ -111,14 +111,32 @@ test("recognizes Codex and Claude transcript interruption records", () => {
     type: "event_msg",
     payload: { type: "turn_aborted", reason: "interrupted" },
   }));
-  const claudeTimestamp = transcriptInterruptionTimestamp(JSON.stringify({
+
+  // English locale plain interrupt
+  const claudeEnTimestamp = transcriptInterruptionTimestamp(JSON.stringify({
     timestamp: "2026-07-17T01:25:01.441Z",
     type: "user",
     message: { content: [{ type: "text", text: "[Request interrupted by user]" }] },
   }));
 
+  // French locale plain Ctrl+C interrupt (actual string from transcript)
+  const claudeFrTimestamp = transcriptInterruptionTimestamp(JSON.stringify({
+    timestamp: "2026-07-17T01:25:02.441Z",
+    type: "user",
+    message: { content: [{ type: "text", text: "[Requête   interrompue  par l'utilisateur]" }] },
+  }));
+
+  // French locale tool-use interrupt (actual string from transcript)
+  const claudeToolTimestamp = transcriptInterruptionTimestamp(JSON.stringify({
+    timestamp: "2026-07-17T01:25:03.441Z",
+    type: "user",
+    message: { content: [{ type: "text", text: "[Requête interrompue par l'utilisateur  pour  utilisation  d'outil]" }] },
+  }));
+
   assert.equal(codexTimestamp, Date.parse("2026-07-17T01:25:00.441Z"));
-  assert.equal(claudeTimestamp, Date.parse("2026-07-17T01:25:01.441Z"));
+  assert.equal(claudeEnTimestamp, Date.parse("2026-07-17T01:25:01.441Z"));
+  assert.equal(claudeFrTimestamp, Date.parse("2026-07-17T01:25:02.441Z"));
+  assert.equal(claudeToolTimestamp, Date.parse("2026-07-17T01:25:03.441Z"));
   assert.equal(transcriptInterruptionTimestamp(JSON.stringify({
     type: "user",
     message: { content: [{ type: "text", text: "keep working" }] },
@@ -196,7 +214,7 @@ test("returns interrupted sessions to idle when the Stop hook is absent", () => 
       interruption: {
         timestamp: "2026-07-17T01:25:01.441Z",
         type: "user",
-        message: { content: [{ type: "text", text: "[Request interrupted by user]" }] },
+        message: { content: [{ type: "text", text: "[Requête   interrompue  par l'utilisateur]" }] },
       },
     },
   ];

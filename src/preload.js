@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("ccPanel", {
   getState: () => ipcRenderer.invoke("get-state"),
   focusSession: (id) => ipcRenderer.invoke("focus-session", id),
   minimizeAllTerminals: () => ipcRenderer.invoke("minimize-all-terminals"),
+  setCompactMode: (enabled) => ipcRenderer.invoke("set-compact-mode", enabled),
   listTerminalApps: () => ipcRenderer.invoke("list-terminal-apps"),
   setTerminalExecutable: (executable) => ipcRenderer.invoke("set-terminal-executable", executable),
   selectTerminalExecutable: () => ipcRenderer.invoke("select-terminal-executable"),

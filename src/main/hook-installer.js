@@ -34,6 +34,17 @@ const CODEX_EVENTS = [
 ];
 
 function nodePath() {
+  // 1. Ask the shell — catches nvm, fnm, Scoop, Chocolatey, custom PATH installs.
+  try {
+    const out = require("child_process").execFileSync("where.exe", ["node"], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    const first = out.split(/\r?\n/).find((l) => l.trim().toLowerCase().endsWith(".exe"));
+    if (first) return first.trim();
+  } catch {}
+
+  // 2. Well-known MSI installer locations as a last resort.
   const candidates = [
     "C:\\Program Files\\nodejs\\node.exe",
     "C:\\Program Files (x86)\\nodejs\\node.exe",
@@ -261,7 +272,10 @@ module.exports = {
   CODEX_EVENTS,
   SETTINGS_PATH: CLAUDE_SETTINGS_PATH,
   CODEX_HOOKS_PATH,
+  claudeEntry,
   codexEntry,
+  hasAll,
+  installEntries,
   windowsHookRuntime,
   windowsHookCommand,
 };

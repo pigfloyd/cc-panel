@@ -1,16 +1,32 @@
 ﻿// app.js — renderer: render session cards, handle clicks and settings.
 // transitions worth interrupting the user for
 const NOTIFY_STATES = new Set(["needs_input", "done", "error"]);
+const STATE_LABELS = {
+  working: "进行中",
+  needs_input: "待输入",
+  done: "已完成",
+  error: "异常",
+  idle: "空闲",
+};
 const orderSessions = createStableSessionOrder();
 const { clientLabel, stateAgeLabel } = sessionMeta;
+const { summarizeSessions } = sessionSummary;
+const initialCompactMode = new URLSearchParams(window.location.search).get("compact") === "1";
+document.body.classList.toggle("compact-mode", initialCompactMode);
 
 const els = {
   cards: document.getElementById("cards"),
   empty: document.getElementById("empty"),
+  compactStatus: document.getElementById("compact-status"),
+  compactTitle: document.getElementById("compact-title"),
+  compactDetail: document.getElementById("compact-detail"),
+  compactAttention: document.getElementById("compact-attention"),
+  btnExpand: document.getElementById("btn-expand"),
   toast: document.getElementById("toast"),
   btnClaudeTerminal: document.getElementById("btn-claude-terminal"),
   btnCodexTerminal: document.getElementById("btn-codex-terminal"),
   btnCollapseTerminals: document.getElementById("btn-collapse-terminals"),
+  btnCompact: document.getElementById("btn-compact"),
   btnSettings: document.getElementById("btn-settings"),
   settingsPanel: document.getElementById("settings-panel"),
   settingAlwaysOnTop: document.getElementById("setting-always-on-top"),
@@ -22,6 +38,7 @@ const els = {
 let sessions = [];
 let prevStates = new Map();
 let cfg = {
+  compactMode: initialCompactMode,
   alwaysOnTop: true,
   sound: false,
   autoLaunch: true,
@@ -33,8 +50,14 @@ let terminalApps = [];
 let terminalScanPromise = null;
 const BROWSE_TERMINAL_VALUE = "__browse__";
 
+let _audioCtx = null;
+function getAudioCtx() {
+  if (!_audioCtx || _audioCtx.state === "closed") _audioCtx = new AudioContext();
+  return _audioCtx;
+}
+
 function beep() {
-  const ctx = new AudioContext();
+  const ctx = getAudioCtx();
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.connect(gain).connect(ctx.destination);
@@ -43,7 +66,6 @@ function beep() {
   gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
   osc.start();
   osc.stop(ctx.currentTime + 0.35);
-  osc.onended = () => ctx.close();
 }
 
 function showToast(text) {
@@ -74,13 +96,40 @@ function render() {
 
   refreshEmptyState();
   els.cards.replaceChildren(...sorted.map(buildCard));
+  refreshCompactSummary();
+}
+
+function refreshCompactSummary() {
+  const summary = summarizeSessions(sessions);
+  els.compactStatus.dataset.state = summary.state;
+  els.compactTitle.textContent = summary.title;
+  els.compactDetail.textContent = summary.detail;
+  els.compactAttention.textContent = String(summary.attention);
+  els.compactAttention.classList.toggle("hidden", summary.attention === 0);
+  els.btnExpand.setAttribute(
+    "aria-label",
+    `${summary.title}，${summary.detail}，点击恢复完整模式`,
+  );
+  document.title = cfg.compactMode ? `${summary.title} - cc-panel` : "cc-panel";
 }
 
 function refreshEmptyState() {
   els.empty.classList.toggle("hidden", sessions.length > 0);
 }
 
+async function focusSession(s) {
+  if (!s.hasWindow) {
+    showToast("未找到该会话的终端窗口");
+    return;
+  }
+  const result = await window.ccPanel.focusSession(s.id);
+  if (!result.ok) {
+    showToast(result.reason === "gone" ? "终端窗口已关闭" : "无法聚焦窗口");
+  }
+}
+
 function buildCard(s) {
+  console.log(`[buildCard] id=${s.id}, state=${s.state}, client=${s.client}`);
   const card = document.createElement("button");
   card.type = "button";
   card.className = "card" + (s.hasWindow ? "" : " no-window");
@@ -104,6 +153,11 @@ function buildCard(s) {
   const meta = document.createElement("div");
   meta.className = "meta";
 
+  const stateLabel = document.createElement("span");
+  stateLabel.className = "state-label";
+  stateLabel.textContent = STATE_LABELS[s.state] || STATE_LABELS.idle;
+  meta.append(stateLabel);
+
   if (!s.hasWindow) {
     const tag = document.createElement("span");
     tag.className = "no-win-tag";
@@ -112,7 +166,7 @@ function buildCard(s) {
   }
 
   card.append(head);
-  if (meta.childElementCount) card.append(meta);
+  card.append(meta);
 
   const context = document.createElement("div");
   context.className = "session-context";
@@ -141,21 +195,13 @@ function buildCard(s) {
     card.append(detail);
   }
 
-  card.addEventListener("click", async () => {
-    if (!s.hasWindow) {
-      showToast("未找到该会话的终端窗口");
-      return;
-    }
-    const result = await window.ccPanel.focusSession(s.id);
-    if (!result.ok) {
-      showToast(result.reason === "gone" ? "终端窗口已关闭" : "无法聚焦窗口");
-    }
-  });
+  card.addEventListener("click", () => focusSession(s));
 
   return card;
 }
 
 function applySnapshot(snapshot) {
+  console.log(`[applySnapshot] 收到 ${snapshot.length} 个会话:`, snapshot.map(s => ({ id: s.id, state: s.state, client: s.client })));
   let hasNotifiableChange = false;
   for (const s of snapshot) {
     const prev = prevStates.get(s.id);
@@ -180,6 +226,29 @@ function refreshConfigButtons() {
   els.settingSound.checked = !!cfg.sound;
   els.settingAutoLaunch.checked = !!cfg.autoLaunch;
   renderTerminalOptions();
+}
+
+function applyCompactMode(compact) {
+  cfg.compactMode = !!compact;
+  document.body.classList.toggle("compact-mode", cfg.compactMode);
+  els.btnCompact.setAttribute("aria-pressed", String(cfg.compactMode));
+  if (cfg.compactMode) els.settingsPanel.classList.add("hidden");
+  refreshConfigButtons();
+  refreshCompactSummary();
+}
+
+async function updateCompactMode(compact) {
+  els.btnCompact.disabled = true;
+  els.btnExpand.disabled = true;
+  try {
+    cfg = await window.ccPanel.setCompactMode(compact);
+    applyCompactMode(cfg.compactMode);
+  } catch {
+    showToast(compact ? "无法进入缩小模式" : "无法恢复完整模式");
+  } finally {
+    els.btnCompact.disabled = false;
+    els.btnExpand.disabled = false;
+  }
 }
 
 function renderTerminalOptions() {
@@ -252,6 +321,8 @@ async function openTerminal(terminalCommand) {
 
 els.btnClaudeTerminal.addEventListener("click", () => openTerminal("claude"));
 els.btnCodexTerminal.addEventListener("click", () => openTerminal("codex"));
+els.btnCompact.addEventListener("click", () => updateCompactMode(true));
+els.btnExpand.addEventListener("click", () => updateCompactMode(false));
 
 els.btnCollapseTerminals.addEventListener("click", async () => {
   els.btnCollapseTerminals.disabled = true;
@@ -328,6 +399,7 @@ setInterval(() => refreshStateAges(), 1000);
 (async function init() {
   const state = await window.ccPanel.getState();
   cfg = state.config;
+  applyCompactMode(cfg.compactMode);
   refreshConfigButtons();
   await scanTerminalApps();
   if (state.hookInstallStatus && !state.hookInstallStatus.ok) {

@@ -15,6 +15,9 @@ const { detectTerminalApps } = require("./terminal-detector");
 const {
   MIN_WINDOW_WIDTH,
   MIN_WINDOW_HEIGHT,
+  COMPACT_WINDOW_WIDTH,
+  COMPACT_WINDOW_HEIGHT,
+  compactBounds,
   ensureVisibleBounds,
 } = require("./window-bounds");
 
@@ -26,9 +29,11 @@ let hookInstallStatus = null;
 let autoLaunchStatus = null;
 let sessionCaptureTimer = null;
 let sessionCapturePromise = null;
+let hookHealthTimer = null;
 
 const TERMINAL_COMMANDS = new Set(["codex", "claude"]);
 const SESSION_CAPTURE_INTERVAL_MS = 5000;
+const HOOK_HEALTH_INTERVAL_MS = 5000;
 
 function normalizeTerminalCommand(value) {
   return TERMINAL_COMMANDS.has(value) ? value : "claude";
@@ -66,9 +71,11 @@ async function main() {
   registerIpc();
   void refreshRunningSessions();
   sessionCaptureTimer = setInterval(() => void refreshRunningSessions(), SESSION_CAPTURE_INTERVAL_MS);
+  hookHealthTimer = setInterval(repairMissingHooks, HOOK_HEALTH_INTERVAL_MS);
 
   app.on("window-all-closed", () => {
     clearInterval(sessionCaptureTimer);
+    clearInterval(hookHealthTimer);
     server.clearRuntime();
     store.dispose();
     app.quit();
@@ -101,6 +108,14 @@ function installHooks() {
   }
 }
 
+function repairMissingHooks() {
+  if (installer.isInstalled()) return;
+  hookInstallStatus = installHooks();
+  if (!hookInstallStatus.ok) {
+    console.error("[cc-panel] hook repair failed:", hookInstallStatus.error);
+  }
+}
+
 function loginItemOptions() {
   if (process.platform !== "win32") return {};
   const options = { path: process.execPath };
@@ -122,6 +137,7 @@ function setAutoLaunch(enabled) {
 
 function configSnapshot(extra = {}) {
   return {
+    compactMode: !!cfg.compactMode,
     alwaysOnTop: !!cfg.alwaysOnTop,
     sound: !!cfg.sound,
     autoLaunch: !!cfg.autoLaunch,
@@ -142,12 +158,18 @@ function defaultBounds(displays = screen.getAllDisplays()) {
 
 function createWindow() {
   const displays = screen.getAllDisplays();
-  const bounds = ensureVisibleBounds(cfg.bounds, displays, defaultBounds(displays));
+  const expandedBounds = ensureVisibleBounds(cfg.bounds, displays, defaultBounds(displays));
+  const isCompact = !!cfg.compactMode;
+  const bounds = isCompact
+    ? compactBounds(expandedBounds, screen.getDisplayMatching(expandedBounds).workArea)
+    : expandedBounds;
   win = new BrowserWindow({
     ...bounds,
-    minWidth: MIN_WINDOW_WIDTH,
-    minHeight: MIN_WINDOW_HEIGHT,
-    backgroundColor: "#f7f5f2",
+    minWidth: isCompact ? COMPACT_WINDOW_WIDTH : MIN_WINDOW_WIDTH,
+    minHeight: isCompact ? Math.min(COMPACT_WINDOW_HEIGHT, bounds.height) : MIN_WINDOW_HEIGHT,
+    resizable: !isCompact,
+    maximizable: !isCompact,
+    backgroundColor: "#eef1f4",
     ...(process.platform === "win32" ? {
       backgroundMaterial: "mica",
     } : {}),
@@ -160,12 +182,14 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
-  win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
+  win.loadFile(path.join(__dirname, "..", "renderer", "index.html"), {
+    query: { compact: isCompact ? "1" : "0" },
+  });
 
   const persistBounds = () => {
     clearTimeout(saveBoundsTimer);
     saveBoundsTimer = setTimeout(() => {
-      if (!win || win.isDestroyed() || win.isMinimized()) return;
+      if (!win || win.isDestroyed() || win.isMinimized() || cfg.compactMode) return;
       cfg.bounds = win.getBounds();
       config.save(cfg);
     }, 500);
@@ -173,6 +197,36 @@ function createWindow() {
   win.on("move", persistBounds);
   win.on("resize", persistBounds);
   win.on("closed", () => { win = null; });
+}
+
+function setCompactMode(enabled) {
+  const compact = !!enabled;
+  if (!win || win.isDestroyed() || compact === !!cfg.compactMode) {
+    return configSnapshot();
+  }
+
+  clearTimeout(saveBoundsTimer);
+  if (compact) {
+    cfg.bounds = win.getBounds();
+    cfg.compactMode = true;
+    const workArea = screen.getDisplayMatching(cfg.bounds).workArea;
+    const bounds = compactBounds(cfg.bounds, workArea);
+    win.setResizable(true);
+    win.setMinimumSize(COMPACT_WINDOW_WIDTH, Math.min(COMPACT_WINDOW_HEIGHT, bounds.height));
+    win.setBounds(bounds);
+    win.setMaximizable(false);
+    win.setResizable(false);
+  } else {
+    cfg.compactMode = false;
+    const displays = screen.getAllDisplays();
+    const bounds = ensureVisibleBounds(cfg.bounds, displays, defaultBounds(displays));
+    win.setResizable(true);
+    win.setMaximizable(true);
+    win.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
+    win.setBounds(bounds);
+  }
+  config.save(cfg);
+  return configSnapshot();
 }
 
 function registerIpc() {
@@ -192,6 +246,10 @@ function registerIpc() {
 
   ipcMain.handle("minimize-all-terminals", () => {
     return store.minimizeAll();
+  });
+
+  ipcMain.handle("set-compact-mode", (_e, enabled) => {
+    return setCompactMode(enabled);
   });
 
   ipcMain.handle("list-terminal-apps", () => ({
