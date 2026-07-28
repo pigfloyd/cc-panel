@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { compactBounds, ensureVisibleBounds } = require("../src/main/window-bounds");
+const { ensureVisibleBounds } = require("../src/main/window-bounds");
 
 const displays = [
   {
@@ -54,25 +54,5 @@ test("uses current defaults for malformed saved bounds", () => {
   assert.deepEqual(
     ensureVisibleBounds({ x: null, y: 10, width: 380, height: 800 }, displays, fallback),
     fallback,
-  );
-});
-
-test("anchors compact mode to the expanded window's top-right corner", () => {
-  assert.deepEqual(
-    compactBounds(
-      { x: 1540, y: 24, width: 380, height: 900 },
-      displays[0].workArea,
-    ),
-    { x: 1620, y: 24, width: 300, height: 108 },
-  );
-});
-
-test("keeps compact mode inside the display work area", () => {
-  assert.deepEqual(
-    compactBounds(
-      { x: 2820, y: -100, width: 380, height: 800 },
-      displays[1].workArea,
-    ),
-    { x: 2900, y: -100, width: 300, height: 108 },
   );
 });

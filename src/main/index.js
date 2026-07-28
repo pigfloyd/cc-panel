@@ -1,6 +1,7 @@
 // index.js — Electron main entry for cc-panel.
 const { app, BrowserWindow, ipcMain, screen, dialog } = require("electron");
 const { spawn } = require("child_process");
+const fs = require("fs");
 const path = require("path");
 const config = require("./config");
 const server = require("./server");
@@ -13,11 +14,15 @@ const {
 } = require("./terminal-launcher");
 const { detectTerminalApps } = require("./terminal-detector");
 const {
+  normalizeTerminalDirectory,
+  normalizeTerminalHistory,
+  recordTerminalDirectory,
+  terminalHistoryIncludes,
+  removeTerminalDirectory,
+} = require("./terminal-history");
+const {
   MIN_WINDOW_WIDTH,
   MIN_WINDOW_HEIGHT,
-  COMPACT_WINDOW_WIDTH,
-  COMPACT_WINDOW_HEIGHT,
-  compactBounds,
   ensureVisibleBounds,
 } = require("./window-bounds");
 
@@ -30,14 +35,18 @@ let win = null;
 let store = null;
 let cfg = demoMode
   ? {
-      compactMode: false,
       alwaysOnTop: false,
       sound: false,
       autoLaunch: false,
+      terminalHistory: [],
       terminalCommand: "claude",
       terminalExecutable: null,
     }
   : config.load();
+const savedTerminalHistory = normalizeTerminalHistory(cfg.terminalHistory);
+cfg.terminalHistory = savedTerminalHistory.length
+  ? savedTerminalHistory
+  : normalizeTerminalHistory([cfg.terminalDir]);
 let saveBoundsTimer = null;
 let hookInstallStatus = null;
 let autoLaunchStatus = null;
@@ -51,6 +60,14 @@ const HOOK_HEALTH_INTERVAL_MS = 5000;
 
 function normalizeTerminalCommand(value) {
   return TERMINAL_COMMANDS.has(value) ? value : "claude";
+}
+
+function isDirectory(directory) {
+  try {
+    return fs.statSync(directory).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -157,12 +174,12 @@ function setAutoLaunch(enabled) {
 
 function configSnapshot(extra = {}) {
   return {
-    compactMode: !!cfg.compactMode,
     alwaysOnTop: !!cfg.alwaysOnTop,
     sound: !!cfg.sound,
     autoLaunch: !!cfg.autoLaunch,
     terminalCommand: normalizeTerminalCommand(cfg.terminalCommand),
     terminalExecutable: normalizeTerminalExecutable(cfg.terminalExecutable),
+    terminalHistory: normalizeTerminalHistory(cfg.terminalHistory),
     ...extra,
   };
 }
@@ -178,17 +195,11 @@ function defaultBounds(displays = screen.getAllDisplays()) {
 
 function createWindow() {
   const displays = screen.getAllDisplays();
-  const expandedBounds = ensureVisibleBounds(cfg.bounds, displays, defaultBounds(displays));
-  const isCompact = !!cfg.compactMode;
-  const bounds = isCompact
-    ? compactBounds(expandedBounds, screen.getDisplayMatching(expandedBounds).workArea)
-    : expandedBounds;
+  const bounds = ensureVisibleBounds(cfg.bounds, displays, defaultBounds(displays));
   win = new BrowserWindow({
     ...bounds,
-    minWidth: isCompact ? COMPACT_WINDOW_WIDTH : MIN_WINDOW_WIDTH,
-    minHeight: isCompact ? Math.min(COMPACT_WINDOW_HEIGHT, bounds.height) : MIN_WINDOW_HEIGHT,
-    resizable: !isCompact,
-    maximizable: !isCompact,
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     backgroundColor: "#eef1f4",
     ...(process.platform === "win32" ? {
       backgroundMaterial: "mica",
@@ -204,7 +215,6 @@ function createWindow() {
   });
   win.loadFile(path.join(__dirname, "..", "renderer", "index.html"), {
     query: {
-      compact: isCompact ? "1" : "0",
       demo: demoMode ? "1" : "0",
     },
   });
@@ -212,7 +222,7 @@ function createWindow() {
   const persistBounds = () => {
     clearTimeout(saveBoundsTimer);
     saveBoundsTimer = setTimeout(() => {
-      if (demoMode || !win || win.isDestroyed() || win.isMinimized() || cfg.compactMode) return;
+      if (demoMode || !win || win.isDestroyed() || win.isMinimized()) return;
       cfg.bounds = win.getBounds();
       config.save(cfg);
     }, 500);
@@ -220,36 +230,6 @@ function createWindow() {
   win.on("move", persistBounds);
   win.on("resize", persistBounds);
   win.on("closed", () => { win = null; });
-}
-
-function setCompactMode(enabled) {
-  const compact = !!enabled;
-  if (!win || win.isDestroyed() || compact === !!cfg.compactMode) {
-    return configSnapshot();
-  }
-
-  clearTimeout(saveBoundsTimer);
-  if (compact) {
-    cfg.bounds = win.getBounds();
-    cfg.compactMode = true;
-    const workArea = screen.getDisplayMatching(cfg.bounds).workArea;
-    const bounds = compactBounds(cfg.bounds, workArea);
-    win.setResizable(true);
-    win.setMinimumSize(COMPACT_WINDOW_WIDTH, Math.min(COMPACT_WINDOW_HEIGHT, bounds.height));
-    win.setBounds(bounds);
-    win.setMaximizable(false);
-    win.setResizable(false);
-  } else {
-    cfg.compactMode = false;
-    const displays = screen.getAllDisplays();
-    const bounds = ensureVisibleBounds(cfg.bounds, displays, defaultBounds(displays));
-    win.setResizable(true);
-    win.setMaximizable(true);
-    win.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
-    win.setBounds(bounds);
-  }
-  config.save(cfg);
-  return configSnapshot();
 }
 
 function registerIpc() {
@@ -269,10 +249,6 @@ function registerIpc() {
 
   ipcMain.handle("minimize-all-terminals", () => {
     return store.minimizeAll();
-  });
-
-  ipcMain.handle("set-compact-mode", (_e, enabled) => {
-    return setCompactMode(enabled);
   });
 
   ipcMain.handle("list-terminal-apps", () => ({
@@ -310,23 +286,39 @@ function registerIpc() {
     return { ok: true, config: configSnapshot() };
   });
 
-  ipcMain.handle("open-terminal", async (_event, terminalCommand) => {
+  ipcMain.handle("open-terminal", async (_event, terminalCommand, requestedDirectory) => {
     if (process.platform !== "win32") return { ok: false, reason: "unsupported_platform" };
     if (!TERMINAL_COMMANDS.has(terminalCommand)) {
       return { ok: false, reason: "invalid_command" };
     }
 
-    const selection = await dialog.showOpenDialog(win, {
-      title: "选择终端启动目录",
-      defaultPath: cfg.terminalDir || app.getPath("home"),
-      properties: ["openDirectory"],
-    });
-    if (selection.canceled || !selection.filePaths.length) {
-      return { ok: false, reason: "canceled" };
+    let cwd = null;
+    if (requestedDirectory !== undefined && requestedDirectory !== null) {
+      cwd = normalizeTerminalDirectory(requestedDirectory);
+      if (!cwd || !terminalHistoryIncludes(cfg.terminalHistory, cwd)) {
+        return { ok: false, reason: "invalid_directory", config: configSnapshot() };
+      }
+    } else {
+      const selection = await dialog.showOpenDialog(win, {
+        title: "选择终端启动目录",
+        defaultPath: cfg.terminalDir || app.getPath("home"),
+        properties: ["openDirectory"],
+      });
+      if (selection.canceled || !selection.filePaths.length) {
+        return { ok: false, reason: "canceled", config: configSnapshot() };
+      }
+      cwd = normalizeTerminalDirectory(selection.filePaths[0]);
+      if (!cwd) return { ok: false, reason: "invalid_directory", config: configSnapshot() };
     }
 
-    const cwd = selection.filePaths[0];
+    if (!isDirectory(cwd)) {
+      cfg.terminalHistory = removeTerminalDirectory(cfg.terminalHistory, cwd);
+      config.save(cfg);
+      return { ok: false, reason: "invalid_directory", config: configSnapshot() };
+    }
+
     cfg.terminalDir = cwd;
+    cfg.terminalHistory = recordTerminalDirectory(cfg.terminalHistory, cwd);
     config.save(cfg);
 
     return new Promise((resolve) => {
@@ -347,13 +339,29 @@ function registerIpc() {
         };
         child.once("spawn", () => {
           child.unref();
-          finish({ ok: true, cwd, terminalCommand, terminalExecutable: launch.executable });
+          finish({
+            ok: true,
+            cwd,
+            terminalCommand,
+            terminalExecutable: launch.executable,
+            config: configSnapshot(),
+          });
         });
         child.once("error", (err) => {
-          finish({ ok: false, error: String(err.message || err) });
+          finish({
+            ok: false,
+            reason: "launch_failed",
+            error: String(err.message || err),
+            config: configSnapshot(),
+          });
         });
       } catch (err) {
-        resolve({ ok: false, error: String(err.message || err) });
+        resolve({
+          ok: false,
+          reason: "launch_failed",
+          error: String(err.message || err),
+          config: configSnapshot(),
+        });
       }
     });
   });

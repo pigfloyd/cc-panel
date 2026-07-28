@@ -9,11 +9,11 @@ const LEGACY_CONFIG_PATH = path.join(os.homedir(), ".tpanel", "config.json");
 
 const DEFAULTS = {
   bounds: null,          // {x,y,width,height}
-  compactMode: false,
   alwaysOnTop: true,
   sound: false,
   autoLaunch: true,
   terminalDir: null,
+  terminalHistory: [],
   terminalCommand: "claude",
   terminalExecutable: null,
 };
@@ -21,7 +21,9 @@ const DEFAULTS = {
 function readConfig(file) {
   try {
     const raw = JSON.parse(fs.readFileSync(file, "utf8"));
-    return { ...DEFAULTS, ...(raw && typeof raw === "object" ? raw : {}) };
+    const loaded = { ...DEFAULTS, ...(raw && typeof raw === "object" ? raw : {}) };
+    delete loaded.compactMode;
+    return loaded;
   } catch {
     return null;
   }

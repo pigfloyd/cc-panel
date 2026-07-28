@@ -10,26 +10,19 @@ const STATE_LABELS = {
 };
 const orderSessions = createStableSessionOrder();
 const { clientLabel, stateAgeLabel } = sessionMeta;
-const { summarizeSessions } = sessionSummary;
 const query = new URLSearchParams(window.location.search);
 const isDemoMode = query.get("demo") === "1";
-const initialCompactMode = !isDemoMode && query.get("compact") === "1";
-document.body.classList.toggle("compact-mode", initialCompactMode);
 document.body.classList.toggle("demo-mode", isDemoMode);
 
 const els = {
   cards: document.getElementById("cards"),
   empty: document.getElementById("empty"),
-  compactStatus: document.getElementById("compact-status"),
-  compactTitle: document.getElementById("compact-title"),
-  compactDetail: document.getElementById("compact-detail"),
-  compactAttention: document.getElementById("compact-attention"),
-  btnExpand: document.getElementById("btn-expand"),
   toast: document.getElementById("toast"),
+  newTerminalControl: document.querySelector(".new-terminal-control"),
+  terminalHistoryMenu: document.getElementById("terminal-history-menu"),
   btnClaudeTerminal: document.getElementById("btn-claude-terminal"),
   btnCodexTerminal: document.getElementById("btn-codex-terminal"),
   btnCollapseTerminals: document.getElementById("btn-collapse-terminals"),
-  btnCompact: document.getElementById("btn-compact"),
   btnSettings: document.getElementById("btn-settings"),
   settingsPanel: document.getElementById("settings-panel"),
   settingAlwaysOnTop: document.getElementById("setting-always-on-top"),
@@ -41,16 +34,18 @@ const els = {
 let sessions = [];
 let prevStates = new Map();
 let cfg = {
-  compactMode: initialCompactMode,
   alwaysOnTop: true,
   sound: false,
   autoLaunch: true,
   terminalCommand: "claude",
   terminalExecutable: null,
+  terminalHistory: [],
 };
 let toastTimer = null;
 let terminalApps = [];
 let terminalScanPromise = null;
+let terminalHistoryCommand = null;
+let terminalHistoryCloseTimer = null;
 const BROWSE_TERMINAL_VALUE = "__browse__";
 
 let _audioCtx = null;
@@ -105,21 +100,6 @@ function render() {
 
   refreshEmptyState();
   els.cards.replaceChildren(...sorted.map(buildCard));
-  refreshCompactSummary();
-}
-
-function refreshCompactSummary() {
-  const summary = summarizeSessions(sessions);
-  els.compactStatus.dataset.state = summary.state;
-  els.compactTitle.textContent = summary.title;
-  els.compactDetail.textContent = summary.detail;
-  els.compactAttention.textContent = String(summary.attention);
-  els.compactAttention.classList.toggle("hidden", summary.attention === 0);
-  els.btnExpand.setAttribute(
-    "aria-label",
-    `${summary.title}，${summary.detail}，点击恢复完整模式`,
-  );
-  document.title = cfg.compactMode ? `${summary.title} - cc-panel` : "cc-panel";
 }
 
 function refreshEmptyState() {
@@ -251,33 +231,6 @@ function refreshConfigButtons() {
   renderTerminalOptions();
 }
 
-function applyCompactMode(compact) {
-  cfg.compactMode = !!compact;
-  document.body.classList.toggle("compact-mode", cfg.compactMode);
-  els.btnCompact.setAttribute("aria-pressed", String(cfg.compactMode));
-  if (cfg.compactMode) els.settingsPanel.classList.add("hidden");
-  refreshConfigButtons();
-  refreshCompactSummary();
-}
-
-async function updateCompactMode(compact) {
-  if (isDemoMode) {
-    applyCompactMode(compact);
-    return;
-  }
-  els.btnCompact.disabled = true;
-  els.btnExpand.disabled = true;
-  try {
-    cfg = await window.ccPanel.setCompactMode(compact);
-    applyCompactMode(cfg.compactMode);
-  } catch {
-    showToast(compact ? "无法进入缩小模式" : "无法恢复完整模式");
-  } finally {
-    els.btnCompact.disabled = false;
-    els.btnExpand.disabled = false;
-  }
-}
-
 function renderTerminalOptions() {
   const current = cfg.terminalExecutable || "";
   const currentKey = current.toLowerCase();
@@ -299,6 +252,77 @@ function renderTerminalOptions() {
   els.settingTerminalExecutable.replaceChildren(...options);
   els.settingTerminalExecutable.value = matchedTerminal ? matchedTerminal.executable : current;
   els.settingTerminalExecutable.title = current || "默认使用 Windows Terminal";
+}
+
+function setTerminalHistoryOpen(open, terminalCommand = terminalHistoryCommand) {
+  const hasHistory = Array.isArray(cfg.terminalHistory) && cfg.terminalHistory.length > 0;
+  const shouldOpen = !!open && hasHistory;
+  if (shouldOpen) terminalHistoryCommand = terminalCommand;
+  els.terminalHistoryMenu.classList.toggle("hidden", !shouldOpen);
+  els.btnClaudeTerminal.setAttribute(
+    "aria-expanded",
+    String(shouldOpen && terminalHistoryCommand === "claude"),
+  );
+  els.btnCodexTerminal.setAttribute(
+    "aria-expanded",
+    String(shouldOpen && terminalHistoryCommand === "codex"),
+  );
+}
+
+function terminalDirectoryTitle(directory) {
+  const withoutTrailingSeparators = String(directory).replace(/[\\/]+$/, "");
+  const parts = withoutTrailingSeparators.split(/[\\/]+/).filter(Boolean);
+  return parts.at(-1) || directory;
+}
+
+function renderTerminalHistory() {
+  const directories = Array.isArray(cfg.terminalHistory) ? cfg.terminalHistory.slice(0, 5) : [];
+  const items = directories.map((directory) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "terminal-history-item";
+    item.setAttribute("role", "menuitem");
+    item.title = directory;
+
+    const title = document.createElement("strong");
+    title.className = "terminal-history-title";
+    title.textContent = terminalDirectoryTitle(directory);
+
+    const directoryPath = document.createElement("span");
+    directoryPath.className = "terminal-history-path";
+    directoryPath.textContent = directory;
+    item.append(title, directoryPath);
+
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const command = terminalHistoryCommand || "claude";
+      setTerminalHistoryOpen(false);
+      void openTerminal(command, directory);
+    });
+    return item;
+  });
+
+  els.terminalHistoryMenu.replaceChildren(...items);
+  if (!items.length) setTerminalHistoryOpen(false);
+}
+
+function showTerminalHistory(terminalCommand) {
+  clearTimeout(terminalHistoryCloseTimer);
+  if (!els.settingsPanel.classList.contains("hidden")) setSettingsOpen(false);
+  setTerminalHistoryOpen(true, terminalCommand);
+}
+
+function scheduleTerminalHistoryClose() {
+  clearTimeout(terminalHistoryCloseTimer);
+  terminalHistoryCloseTimer = setTimeout(() => setTerminalHistoryOpen(false), 120);
+}
+
+function setTerminalControlsDisabled(disabled) {
+  els.btnClaudeTerminal.disabled = disabled;
+  els.btnCodexTerminal.disabled = disabled;
+  for (const item of els.terminalHistoryMenu.querySelectorAll(".terminal-history-item")) {
+    item.disabled = disabled;
+  }
 }
 
 async function scanTerminalApps() {
@@ -332,34 +356,45 @@ function setSettingsOpen(open) {
   if (open) void scanTerminalApps();
 }
 
-async function openTerminal(terminalCommand) {
+async function openTerminal(terminalCommand, directory) {
+  setTerminalHistoryOpen(false);
   if (isDemoMode) {
     showToast(`${terminalCommand === "codex" ? "Codex CLI" : "Claude Code"} Demo`);
     return;
   }
-  els.btnClaudeTerminal.disabled = true;
-  els.btnCodexTerminal.disabled = true;
+  setTerminalControlsDisabled(true);
   try {
-    const result = await window.ccPanel.openTerminal(terminalCommand);
+    const result = await window.ccPanel.openTerminal(terminalCommand, directory);
+    if (result.config) {
+      cfg = result.config;
+      renderTerminalHistory();
+    }
     if (!result.ok && result.reason !== "canceled") {
       const message = result.reason === "unsupported_platform"
         ? "当前系统不支持启动终端"
-        : "无法打开终端";
+        : result.reason === "invalid_directory"
+          ? "该路径已不可用"
+          : "无法打开终端";
       showToast(message + (result.error ? "：" + result.error : ""));
     }
   } catch {
     showToast("无法打开终端");
   } finally {
-    els.btnClaudeTerminal.disabled = false;
-    els.btnCodexTerminal.disabled = false;
+    setTerminalControlsDisabled(false);
   }
 }
 
 els.btnClaudeTerminal.addEventListener("click", () => openTerminal("claude"));
 els.btnCodexTerminal.addEventListener("click", () => openTerminal("codex"));
-els.btnCompact.addEventListener("click", () => updateCompactMode(true));
-els.btnExpand.addEventListener("click", () => updateCompactMode(false));
-
+els.btnClaudeTerminal.addEventListener("mouseenter", () => showTerminalHistory("claude"));
+els.btnCodexTerminal.addEventListener("mouseenter", () => showTerminalHistory("codex"));
+els.btnClaudeTerminal.addEventListener("focus", () => showTerminalHistory("claude"));
+els.btnCodexTerminal.addEventListener("focus", () => showTerminalHistory("codex"));
+els.newTerminalControl.addEventListener("mouseenter", () => clearTimeout(terminalHistoryCloseTimer));
+els.newTerminalControl.addEventListener("mouseleave", scheduleTerminalHistoryClose);
+els.newTerminalControl.addEventListener("focusout", (event) => {
+  if (!els.newTerminalControl.contains(event.relatedTarget)) scheduleTerminalHistoryClose();
+});
 els.btnCollapseTerminals.addEventListener("click", async () => {
   if (isDemoMode) {
     showToast("Demo 模式不会操作终端窗口");
@@ -445,13 +480,17 @@ els.settingAutoLaunch.addEventListener("change", async () => {
 });
 
 document.addEventListener("click", (event) => {
+  if (!els.newTerminalControl.contains(event.target)) setTerminalHistoryOpen(false);
   if (els.settingsPanel.classList.contains("hidden")) return;
   if (els.settingsPanel.contains(event.target) || els.btnSettings.contains(event.target)) return;
   setSettingsOpen(false);
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") setSettingsOpen(false);
+  if (event.key === "Escape") {
+    setTerminalHistoryOpen(false);
+    setSettingsOpen(false);
+  }
 });
 if (!isDemoMode) window.ccPanel.onSessions(applySnapshot);
 setInterval(() => refreshStateAges(), 1000);
@@ -459,23 +498,23 @@ setInterval(() => refreshStateAges(), 1000);
 (async function init() {
   if (isDemoMode) {
     cfg = {
-      compactMode: false,
       alwaysOnTop: false,
       sound: false,
       autoLaunch: false,
       terminalCommand: "claude",
       terminalExecutable: null,
+      terminalHistory: ["C:\\workspace\\cc-panel", "C:\\workspace\\docs-site"],
     };
-    applyCompactMode(false);
     refreshConfigButtons();
+    renderTerminalHistory();
     await scanTerminalApps();
     applySnapshot(demoData.createDemoSessions());
     return;
   }
   const state = await window.ccPanel.getState();
   cfg = state.config;
-  applyCompactMode(cfg.compactMode);
   refreshConfigButtons();
+  renderTerminalHistory();
   await scanTerminalApps();
   if (state.hookInstallStatus && !state.hookInstallStatus.ok) {
     showToast("hooks 自动安装失败：" + (state.hookInstallStatus.error || "未知错误"));
