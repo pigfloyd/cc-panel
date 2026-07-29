@@ -82,9 +82,11 @@ class SessionStore {
         transcriptPath: null,
         transcriptOffset: null,
         transcriptRemainder: "",
-        transcriptQuestionCalls: new Set(),
-        transcriptQuestionSince: null,
-        waitingForTranscriptQuestion: false,
+        transcriptInputCalls: new Set(),
+        transcriptApprovalCalls: new Set(),
+        transcriptInputSince: null,
+        waitingForTranscriptInput: false,
+        lastPreToolUseTs: null,
       };
       this.sessions.set(id, s);
     }
@@ -140,13 +142,21 @@ class SessionStore {
     } else if (body.event !== "UserPromptSubmit") {
       s.currentTool = null;
     }
+    if (body.event === "PreToolUse") {
+      s.lastPreToolUseTs = ts;
+      for (const callId of s.transcriptApprovalCalls) s.transcriptInputCalls.delete(callId);
+      s.transcriptApprovalCalls.clear();
+      if (s.transcriptInputCalls.size === 0) s.transcriptInputSince = null;
+    }
     if (body.event === "UserPromptSubmit") {
       if (body.prompt_line) s.lastPrompt = body.prompt_line;
       s.message = null;
       s.currentTool = null;
-      s.transcriptQuestionCalls.clear();
-      s.transcriptQuestionSince = null;
-      s.waitingForTranscriptQuestion = false;
+      s.transcriptInputCalls.clear();
+      s.transcriptApprovalCalls.clear();
+      s.transcriptInputSince = null;
+      s.waitingForTranscriptInput = false;
+      s.lastPreToolUseTs = null;
     }
     if (body.event === "Notification") s.message = body.message || null;
     else if (body.event !== "PreToolUse") s.message = null;
@@ -388,33 +398,35 @@ class SessionStore {
     s.transcriptPath = resolved;
     s.transcriptOffset = transcriptSize(resolved);
     s.transcriptRemainder = "";
-    s.transcriptQuestionCalls.clear();
-    s.transcriptQuestionSince = null;
-    s.waitingForTranscriptQuestion = false;
+    s.transcriptInputCalls.clear();
+    s.transcriptApprovalCalls.clear();
+    s.transcriptInputSince = null;
+    s.waitingForTranscriptInput = false;
+    s.lastPreToolUseTs = null;
   }
 
   _pollTranscripts() {
     let changed = false;
     for (const s of this.sessions.values()) {
       if ((s.state !== "working" && s.state !== "needs_input") || !s.transcriptPath) continue;
-      const wasWaitingForQuestion = s.waitingForTranscriptQuestion;
+      const wasWaitingForInput = s.waitingForTranscriptInput;
       const terminalOutcome = readTranscriptOutcome(s);
-      const waitingForQuestion = s.transcriptQuestionCalls.size > 0;
+      const waitingForInput = s.transcriptInputCalls.size > 0;
 
-      if (waitingForQuestion !== wasWaitingForQuestion) {
-        s.waitingForTranscriptQuestion = waitingForQuestion;
+      if (waitingForInput !== wasWaitingForInput) {
+        s.waitingForTranscriptInput = waitingForInput;
         changed = true;
       }
 
       // Hook delivery and transcript polling are asynchronous. A delayed
-      // PreToolUse can overwrite needs_input after the question was detected,
-      // so enforce the state while the call remains unanswered instead of
+      // PreToolUse can overwrite needs_input after a question was detected,
+      // so enforce the state while any input call remains unanswered instead of
       // only reacting when the pending-call boolean changes.
-      if (waitingForQuestion && s.state === "working") {
-        const questionTs = Number(s.transcriptQuestionSince) || Date.now();
-        this._setState(s, "needs_input", Math.max(s.lastEventTs, questionTs));
+      if (waitingForInput && s.state === "working") {
+        const inputTs = Number(s.transcriptInputSince) || Date.now();
+        this._setState(s, "needs_input", Math.max(s.lastEventTs, inputTs));
         changed = true;
-      } else if (!waitingForQuestion && wasWaitingForQuestion && s.state === "needs_input") {
+      } else if (!waitingForInput && wasWaitingForInput && s.state === "needs_input") {
         this._setState(s, "working", Math.max(s.lastEventTs, Date.now()));
         changed = true;
       }
@@ -426,9 +438,11 @@ class SessionStore {
       s.turnStopped = true;
       s.currentTool = null;
       s.message = null;
-      s.transcriptQuestionCalls.clear();
-      s.transcriptQuestionSince = null;
-      s.waitingForTranscriptQuestion = false;
+      s.transcriptInputCalls.clear();
+      s.transcriptApprovalCalls.clear();
+      s.transcriptInputSince = null;
+      s.waitingForTranscriptInput = false;
+      s.lastPreToolUseTs = null;
       this._setState(s, terminalOutcome.state, ts);
       changed = true;
     }
@@ -591,7 +605,7 @@ function readTranscriptOutcome(session) {
   let terminalOutcome = null;
   for (const line of parts) {
     const parsed = parseTranscriptLine(line);
-    updateTranscriptQuestionCalls(session, parsed);
+    updateTranscriptInputCalls(session, parsed);
     terminalOutcome = nextTranscriptOutcome(terminalOutcome, parsed);
   }
 
@@ -600,7 +614,7 @@ function readTranscriptOutcome(session) {
   if (session.transcriptRemainder) {
     const parsed = parseTranscriptLine(session.transcriptRemainder);
     if (parsed.valid) session.transcriptRemainder = "";
-    if (parsed.valid) updateTranscriptQuestionCalls(session, parsed);
+    if (parsed.valid) updateTranscriptInputCalls(session, parsed);
     terminalOutcome = nextTranscriptOutcome(terminalOutcome, parsed);
   }
   return terminalOutcome;
@@ -620,8 +634,9 @@ function parseTranscriptLine(line) {
       interruptedAt: null,
       errorAt: null,
       turnStarted: false,
-      questionStarted: null,
-      questionFinished: null,
+      inputStarted: null,
+      approvalStarted: null,
+      inputFinished: null,
     };
   }
 
@@ -629,13 +644,11 @@ function parseTranscriptLine(line) {
   const turnStarted = entry.type === "event_msg" && payload && payload.type === "task_started";
   const taskFailed = entry.type === "event_msg" && payload &&
     payload.type === "task_complete" && !!payload.error;
-  const questionStarted = entry.type === "response_item" && payload &&
-    payload.type === "function_call" && payload.name === "request_user_input" &&
+  const approvalStarted = isCodexApprovalCall(payload) ? payload.call_id : null;
+  const inputStarted = (isCodexInputCall(payload) || approvalStarted) ? payload.call_id : null;
+  const inputFinished = entry.type === "response_item" && payload &&
+    (payload.type === "function_call_output" || payload.type === "custom_tool_call_output") &&
     typeof payload.call_id === "string" ? payload.call_id : null;
-  const questionFinished = entry.type === "response_item" && payload &&
-    payload.type === "function_call_output" && typeof payload.call_id === "string"
-    ? payload.call_id
-    : null;
 
   const codexInterrupted = entry && entry.type === "event_msg" &&
     payload && payload.type === "turn_aborted";
@@ -658,8 +671,9 @@ function parseTranscriptLine(line) {
       interruptedAt: null,
       errorAt: taskFailed ? transcriptTimestamp(entry) : null,
       turnStarted,
-      questionStarted,
-      questionFinished,
+      inputStarted,
+      approvalStarted,
+      inputFinished,
       timestamp: transcriptTimestamp(entry),
     };
   }
@@ -669,8 +683,9 @@ function parseTranscriptLine(line) {
     interruptedAt: transcriptTimestamp(entry),
     errorAt: null,
     turnStarted,
-    questionStarted,
-    questionFinished,
+    inputStarted,
+    approvalStarted,
+    inputFinished,
     timestamp: transcriptTimestamp(entry),
   };
 }
@@ -685,16 +700,38 @@ function nextTranscriptOutcome(current, parsed) {
   return current;
 }
 
-function updateTranscriptQuestionCalls(session, parsed) {
-  if (parsed.questionStarted) {
-    if (session.transcriptQuestionCalls.size === 0) {
-      session.transcriptQuestionSince = parsed.timestamp;
+function isCodexInputCall(payload) {
+  if (!payload || typeof payload.call_id !== "string") return false;
+  return payload.type === "function_call" && payload.name === "request_user_input";
+}
+
+function isCodexApprovalCall(payload) {
+  if (!payload || typeof payload.call_id !== "string") return false;
+  if (payload.type !== "function_call" && payload.type !== "custom_tool_call") return false;
+
+  const input = typeof payload.input === "string"
+    ? payload.input
+    : typeof payload.arguments === "string" ? payload.arguments : "";
+  return /sandbox_permissions[\"']?\s*:\s*[\"']require_escalated[\"']/.test(input);
+}
+
+function updateTranscriptInputCalls(session, parsed) {
+  if (parsed.inputStarted) {
+    // The tool hook can arrive before the next transcript poll after a fast
+    // approval. Do not resurrect an approval that the tool has already begun.
+    if (parsed.approvalStarted && Number(session.lastPreToolUseTs) >= parsed.timestamp) return;
+    if (session.transcriptInputCalls.size === 0) {
+      session.transcriptInputSince = parsed.timestamp;
     }
-    session.transcriptQuestionCalls.add(parsed.questionStarted);
+    session.transcriptInputCalls.add(parsed.inputStarted);
+    if (parsed.approvalStarted) session.transcriptApprovalCalls.add(parsed.approvalStarted);
   }
-  if (parsed.questionFinished && session.transcriptQuestionCalls.delete(parsed.questionFinished) &&
-      session.transcriptQuestionCalls.size === 0) {
-    session.transcriptQuestionSince = null;
+  if (parsed.inputFinished) {
+    session.transcriptApprovalCalls.delete(parsed.inputFinished);
+    if (session.transcriptInputCalls.delete(parsed.inputFinished) &&
+        session.transcriptInputCalls.size === 0) {
+      session.transcriptInputSince = null;
+    }
   }
 }
 

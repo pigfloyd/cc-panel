@@ -219,6 +219,7 @@ test("does not apply a previous Codex task error after a newer turn starts", () 
 
       store._pollTranscripts();
       assert.equal(store.snapshot()[0].state, "working");
+
     } finally {
       store.dispose();
     }
@@ -270,6 +271,114 @@ test("marks a Codex request_user_input call as waiting for input until answered"
       store._pollTranscripts();
       [session] = store.snapshot();
       assert.equal(session.state, "working");
+    } finally {
+      store.dispose();
+    }
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("marks a Codex escalated command as waiting for approval until answered", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-panel-approval-"));
+  const transcript = path.join(tempDir, "codex.jsonl");
+  const callId = "call_approval_1";
+
+  try {
+    fs.writeFileSync(transcript, `${JSON.stringify({ type: "session_start" })}\n`);
+    const store = new SessionStore();
+    store.dispose();
+    try {
+      store.handleEvent({
+        session_id: "codex:approval",
+        event: "UserPromptSubmit",
+        client: "codex",
+        transcript_path: transcript,
+        ts: 100,
+      });
+
+      fs.appendFileSync(transcript, `${JSON.stringify({
+        timestamp: "2026-07-29T05:46:04.441Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call",
+          name: "exec",
+          call_id: callId,
+          input: 'await tools.shell_command({ command: "npm test", sandbox_permissions: "require_escalated" })',
+        },
+      })}\n`);
+      store._pollTranscripts();
+      assert.equal(store.snapshot()[0].state, "needs_input");
+
+      store.handleEvent({
+        session_id: "codex:approval",
+        event: "PreToolUse",
+        client: "codex",
+        tool_name: "shell_command",
+        ts: Date.parse("2026-07-29T05:46:05.441Z"),
+      });
+      assert.equal(store.snapshot()[0].state, "working");
+      store._pollTranscripts();
+      assert.equal(store.snapshot()[0].state, "working");
+
+      fs.appendFileSync(transcript, `${JSON.stringify({
+        timestamp: "2026-07-29T05:46:06.441Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call_output",
+          call_id: callId,
+          output: "Exit code: 0",
+        },
+      })}\n`);
+      store._pollTranscripts();
+      assert.equal(store.snapshot()[0].state, "working");
+
+      const deniedCallId = "call_approval_2";
+      fs.appendFileSync(transcript, `${JSON.stringify({
+        timestamp: "2026-07-29T05:46:07.441Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call",
+          name: "exec",
+          call_id: deniedCallId,
+          input: 'await tools.shell_command({ command: "npm test", sandbox_permissions: "require_escalated" })',
+        },
+      })}\n`);
+      store._pollTranscripts();
+      assert.equal(store.snapshot()[0].state, "needs_input");
+
+      fs.appendFileSync(transcript, `${JSON.stringify({
+        timestamp: "2026-07-29T05:46:08.441Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call_output",
+          call_id: deniedCallId,
+          output: "Denied by user",
+        },
+      })}\n`);
+      store._pollTranscripts();
+      assert.equal(store.snapshot()[0].state, "working");
+
+      const fastApprovalCallId = "call_approval_3";
+      fs.appendFileSync(transcript, `${JSON.stringify({
+        timestamp: "2026-07-29T05:46:09.441Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call",
+          name: "exec",
+          call_id: fastApprovalCallId,
+          input: 'await tools.shell_command({ command: "npm test", sandbox_permissions: "require_escalated" })',
+        },
+      })}\n`);
+      store.handleEvent({
+        session_id: "codex:approval",
+        event: "PreToolUse",
+        client: "codex",
+        tool_name: "shell_command",
+        ts: Date.parse("2026-07-29T05:46:10.441Z"),
+      });
+      store._pollTranscripts();
+      assert.equal(store.snapshot()[0].state, "working");
     } finally {
       store.dispose();
     }

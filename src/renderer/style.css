@@ -220,26 +220,67 @@ input:focus-visible {
 
 .card[data-state="working"] .state-label {
   position: relative;
+  overflow: hidden;
+  padding-left: 17px;
+  background:
+    linear-gradient(110deg, rgba(255, 255, 255, 0.72), rgba(220, 232, 255, 0.76));
+  border-color: rgba(47, 111, 235, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 1px 2px rgba(47, 111, 235, 0.08);
+}
+
+.card[data-state="working"] .state-label::before {
+  position: absolute;
+  top: 50%;
+  left: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 0 rgba(47, 111, 235, 0.28);
+  content: "";
+  pointer-events: none;
+  transform: translateY(-50%);
+  animation: working-dot-pulse 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 .card[data-state="working"] .state-label::after {
   position: absolute;
-  inset: -1px;
-  border: 1px solid rgba(47, 111, 235, 0.5);
-  border-radius: inherit;
+  top: -50%;
+  bottom: -50%;
+  left: -18px;
+  width: 12px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.78), transparent);
   content: "";
+  opacity: 0;
   pointer-events: none;
-  animation: working-label-ripple 1.8s ease-out infinite;
+  transform: translateX(0) rotate(12deg);
+  animation: working-label-sheen 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
-@keyframes working-label-ripple {
-  0% {
-    opacity: 0.6;
-    transform: scale(1);
+@keyframes working-dot-pulse {
+  0%, 100% {
+    opacity: 0.72;
+    box-shadow: 0 0 0 0 rgba(47, 111, 235, 0.22);
   }
-  75%, 100% {
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 0 3px rgba(47, 111, 235, 0.09);
+  }
+}
+
+@keyframes working-label-sheen {
+  0%, 28% {
     opacity: 0;
-    transform: scale(1.35, 1.65);
+    transform: translateX(0) rotate(12deg);
+  }
+  42% {
+    opacity: 0.8;
+  }
+  58%, 100% {
+    opacity: 0;
+    transform: translateX(78px) rotate(12deg);
   }
 }
 
@@ -291,6 +332,58 @@ input:focus-visible {
   font-weight: 650;
   line-height: 1;
   white-space: nowrap;
+}
+
+/* Idle session stack */
+.idle-stack {
+  position: relative;
+  width: 100%;
+  height: var(--stack-collapsed-height);
+  flex: 0 0 auto;
+  isolation: isolate;
+  transition: height 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.idle-stack.is-expanded {
+  height: var(--stack-expanded-height);
+}
+
+.idle-stack .card {
+  position: absolute;
+  top: var(--stack-collapsed-top);
+  right: var(--stack-collapsed-inset);
+  left: var(--stack-collapsed-inset);
+  width: auto;
+  height: 88px;
+  min-height: 88px;
+  transition:
+    top 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    right 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    left 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.14s ease,
+    box-shadow 0.14s ease,
+    transform 0.14s ease;
+}
+
+.idle-stack.is-expanded .card {
+  top: var(--stack-expanded-top);
+  right: 0;
+  left: 0;
+}
+
+.idle-stack.is-collapsed .card:not(:first-child) {
+  pointer-events: none;
+}
+
+.idle-stack-count {
+  margin-left: 5px;
+  padding-left: 5px;
+  border-left: 1px solid currentColor;
+  font-variant-numeric: tabular-nums;
+}
+
+.idle-stack.is-expanded .idle-stack-count {
+  display: none;
 }
 
 /* Empty state */
@@ -564,7 +657,7 @@ input:focus-visible {
 }
 
 .setting-row input[type="checkbox"]:checked {
-  background: var(--s-done);
+  background: var(--accent);
 }
 
 .setting-row input[type="checkbox"]:checked::after {

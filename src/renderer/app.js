@@ -12,6 +12,7 @@ const orderSessions = createStableSessionOrder();
 const { clientLabel, stateAgeLabel } = sessionMeta;
 const query = new URLSearchParams(window.location.search);
 const isDemoMode = query.get("demo") === "1";
+const IDLE_STACK_COLLAPSE_DELAY_MS = 3000;
 document.body.classList.toggle("demo-mode", isDemoMode);
 
 const els = {
@@ -46,6 +47,9 @@ let terminalApps = [];
 let terminalScanPromise = null;
 let terminalHistoryCommand = null;
 let terminalHistoryCloseTimer = null;
+let idleStackCollapseTimer = null;
+let idleStackExpanded = false;
+let idleStackInitialized = false;
 const BROWSE_TERMINAL_VALUE = "__browse__";
 
 let _audioCtx = null;
@@ -97,9 +101,50 @@ function refreshStateAges(now = Date.now()) {
 
 function render() {
   const sorted = orderSessions(sessions);
+  const idleSessions = sorted.filter((session) => session.state === "idle");
+  const hasIdleStack = idleSessions.length > 1;
+  const animateInitialCollapse = hasIdleStack && !idleStackInitialized;
+  let idleStack = null;
+
+  if (hasIdleStack) {
+    idleStackInitialized = true;
+    if (animateInitialCollapse) idleStackExpanded = true;
+  } else {
+    clearIdleStackCollapseTimer();
+    idleStackInitialized = false;
+    idleStackExpanded = false;
+  }
+
+  let cards;
+  if (hasIdleStack) {
+    idleStack = buildIdleStack(idleSessions, idleStackExpanded);
+    cards = [
+      idleStack,
+      ...sorted.filter((session) => session.state !== "idle").map(buildCard),
+    ];
+  } else {
+    cards = sorted.map(buildCard);
+  }
 
   refreshEmptyState();
-  els.cards.replaceChildren(...sorted.map(buildCard));
+  els.cards.replaceChildren(...cards);
+
+  if (animateInitialCollapse && idleStack) {
+    // Commit the expanded geometry first so the initial automatic stack is animated.
+    idleStack.getBoundingClientRect();
+    requestAnimationFrame(() => {
+      if (!idleStack.isConnected) return;
+      if (idleStack.matches(":hover") || idleStack.contains(document.activeElement)) return;
+      setIdleStackExpanded(false, idleStack);
+    });
+  } else if (idleStack) {
+    // Snapshots rebuild the DOM; restore hover state if the pointer stayed over the new stack.
+    if (idleStack.matches(":hover") || idleStack.contains(document.activeElement)) {
+      setIdleStackExpanded(true, idleStack);
+    } else if (idleStackExpanded) {
+      scheduleIdleStackCollapse();
+    }
+  }
 }
 
 function refreshEmptyState() {
@@ -188,6 +233,86 @@ function buildCard(s) {
   card.addEventListener("click", () => focusSession(s));
 
   return card;
+}
+
+function buildIdleStack(idleSessions, expanded) {
+  const stack = document.createElement("section");
+  const visibleDepth = Math.min(idleSessions.length - 1, 3);
+  stack.className = "idle-stack";
+  stack.setAttribute("aria-label", `${idleSessions.length} 个空闲会话`);
+  stack.style.setProperty("--stack-collapsed-height", `${88 + visibleDepth * 6}px`);
+  stack.style.setProperty("--stack-expanded-height", `${idleSessions.length * 96 - 8}px`);
+
+  const cards = idleSessions.map((session, index) => {
+    const card = buildCard(session);
+    const depth = Math.min(index, 3);
+    card.style.setProperty("--stack-collapsed-top", `${depth * 6}px`);
+    card.style.setProperty("--stack-collapsed-inset", `${depth * 4}px`);
+    card.style.setProperty("--stack-expanded-top", `${index * 96}px`);
+    card.style.zIndex = String(idleSessions.length - index);
+    return card;
+  });
+
+  const count = document.createElement("span");
+  count.className = "idle-stack-count";
+  count.textContent = String(idleSessions.length);
+  count.title = `${idleSessions.length} 个空闲会话`;
+  cards[0].querySelector(".state-label").append(count);
+  stack.append(...cards);
+  updateIdleStackElement(stack, expanded);
+
+  stack.addEventListener("mouseenter", () => {
+    clearIdleStackCollapseTimer();
+    setIdleStackExpanded(true, stack);
+  });
+  stack.addEventListener("mouseleave", scheduleIdleStackCollapse);
+  stack.addEventListener("focusin", () => {
+    clearIdleStackCollapseTimer();
+    setIdleStackExpanded(true, stack);
+  });
+  stack.addEventListener("focusout", (event) => {
+    if (!stack.contains(event.relatedTarget)) scheduleIdleStackCollapse();
+  });
+
+  return stack;
+}
+
+function updateIdleStackElement(stack, expanded) {
+  stack.classList.toggle("is-expanded", expanded);
+  stack.classList.toggle("is-collapsed", !expanded);
+  stack.setAttribute("aria-expanded", String(expanded));
+
+  for (const [index, card] of [...stack.querySelectorAll(".card")].entries()) {
+    const accessible = expanded || index === 0;
+    card.tabIndex = accessible ? 0 : -1;
+    if (accessible) card.removeAttribute("aria-hidden");
+    else card.setAttribute("aria-hidden", "true");
+  }
+}
+
+function setIdleStackExpanded(expanded, stack = els.cards.querySelector(".idle-stack")) {
+  idleStackExpanded = expanded;
+  if (expanded) clearIdleStackCollapseTimer();
+  if (stack) updateIdleStackElement(stack, expanded);
+}
+
+function clearIdleStackCollapseTimer() {
+  clearTimeout(idleStackCollapseTimer);
+  idleStackCollapseTimer = null;
+}
+
+function scheduleIdleStackCollapse() {
+  if (idleStackCollapseTimer !== null) return;
+  idleStackCollapseTimer = setTimeout(() => {
+    idleStackCollapseTimer = null;
+    const stack = els.cards.querySelector(".idle-stack");
+    if (!stack) {
+      idleStackExpanded = false;
+      return;
+    }
+    if (stack.matches(":hover") || stack.contains(document.activeElement)) return;
+    setIdleStackExpanded(false, stack);
+  }, IDLE_STACK_COLLAPSE_DELAY_MS);
 }
 
 function createContextSeparator() {

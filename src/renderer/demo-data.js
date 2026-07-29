@@ -58,6 +58,28 @@
         lastPrompt: "等待下一项任务",
         hasWindow: true,
       },
+      {
+        id: "demo:release-notes",
+        client: "claude",
+        project: "release-notes",
+        cwd: "C:\\workspace\\release-notes",
+        state: "idle",
+        stateSince: now - 26 * 60_000,
+        terminalPid: 14006,
+        lastPrompt: "等待下一项任务",
+        hasWindow: true,
+      },
+      {
+        id: "demo:ops-toolkit",
+        client: "codex",
+        project: "ops-toolkit",
+        cwd: "C:\\workspace\\ops-toolkit",
+        state: "idle",
+        stateSince: now - 41 * 60_000,
+        terminalPid: 14007,
+        lastPrompt: "等待下一项任务",
+        hasWindow: true,
+      },
     ];
   }
 
