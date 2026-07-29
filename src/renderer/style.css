@@ -487,6 +487,27 @@ input:focus-visible {
   background: var(--text);
 }
 
+#btn-settings.has-hook-error::after,
+#btn-settings.has-hook-warning::after {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--panel);
+  border-radius: 50%;
+  background: var(--s-error);
+  content: "";
+}
+
+#btn-settings {
+  position: relative;
+}
+
+#btn-settings.has-hook-error::after {
+  background: var(--s-needs);
+}
+
 .new-terminal-control {
   position: relative;
   min-width: 0;
@@ -681,6 +702,61 @@ input:focus-visible {
 .setting-terminal-select:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+
+.hook-status-group {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border);
+}
+
+.setting-section-label {
+  padding: 5px 8px 3px;
+  color: var(--text-mute);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.hook-status-row {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 8px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.hook-status {
+  display: inline-flex;
+  min-width: 48px;
+  min-height: 20px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  color: var(--s-idle);
+  background: var(--s-idle-soft);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.hook-status[data-status="installed"] {
+  color: var(--s-done);
+  background: var(--s-done-soft);
+}
+
+.hook-status[data-status="failed"] {
+  color: var(--s-needs);
+  background: var(--s-needs-soft);
+}
+
+.hook-status[data-status="pending_trust"] {
+  color: var(--s-error);
+  background: var(--s-error-soft);
 }
 
 /* Toast */

@@ -205,6 +205,25 @@ function isCodexInstalled() {
   try { return hasAll(readJsonFile(CODEX_HOOKS_PATH, {}), CODEX_EVENTS); } catch { return false; }
 }
 
+function inspectClient(file, events, pendingWhenMissing = false) {
+  if (!fs.existsSync(file)) {
+    return { status: pendingWhenMissing ? "pending_trust" : "not_installed" };
+  }
+  try {
+    const installed = hasAll(readJsonFile(file, {}), events);
+    return { status: installed ? "installed" : "not_installed" };
+  } catch (err) {
+    return { status: "failed", error: String(err.message || err) };
+  }
+}
+
+function inspect() {
+  return {
+    claude: inspectClient(CLAUDE_SETTINGS_PATH, CLAUDE_EVENTS, true),
+    codex: inspectClient(CODEX_HOOKS_PATH, CODEX_EVENTS),
+  };
+}
+
 function isInstalled() {
   const claudeReady = !fs.existsSync(CLAUDE_SETTINGS_PATH) || isClaudeInstalled();
   return claudeReady && isCodexInstalled();
@@ -233,13 +252,30 @@ function safeStep(fn) {
   }
 }
 
+function withInstallStatus(step, inspection) {
+  if (step.error) return { ...step, status: "failed" };
+  return { ...step, ...inspection };
+}
+
+function summarizeInstallResults(claude, codex) {
+  const clients = { claude, codex };
+  return {
+    ok: Object.values(clients).every((client) => (
+      client.status === "installed" || client.status === "pending_trust"
+    )),
+    changed: !!claude.changed || !!codex.changed,
+    ...clients,
+  };
+}
+
 function install() {
-  const claude = safeStep(installClaude);
-  const codex = safeStep(installCodex);
-  if (claude.error && codex.error) {
-    throw new Error(`Claude hooks failed: ${claude.error}; Codex hooks failed: ${codex.error}`);
-  }
-  return { changed: !!claude.changed || !!codex.changed, claude, codex };
+  const claudeStep = safeStep(installClaude);
+  const codexStep = safeStep(installCodex);
+  const status = inspect();
+  return summarizeInstallResults(
+    withInstallStatus(claudeStep, status.claude),
+    withInstallStatus(codexStep, status.codex),
+  );
 }
 
 function uninstall() {
@@ -267,6 +303,7 @@ module.exports = {
   uninstall,
   isClaudeInstalled,
   isCodexInstalled,
+  inspect,
   EVENTS: CLAUDE_EVENTS,
   CLAUDE_EVENTS,
   CODEX_EVENTS,
@@ -276,6 +313,7 @@ module.exports = {
   codexEntry,
   hasAll,
   installEntries,
+  summarizeInstallResults,
   windowsHookRuntime,
   windowsHookCommand,
 };

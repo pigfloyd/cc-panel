@@ -40,6 +40,17 @@
         <option value="">正在扫描...</option>
       </select>
     </div>
+    <div class="hook-status-group" aria-label="Hook 安装状态">
+      <div class="setting-section-label">Hook 状态</div>
+      <div class="hook-status-row">
+        <span>Claude Code</span>
+        <span id="claude-hook-status" class="hook-status" data-status="not_installed">未安装</span>
+      </div>
+      <div class="hook-status-row">
+        <span>Codex CLI</span>
+        <span id="codex-hook-status" class="hook-status" data-status="not_installed">未安装</span>
+      </div>
+    </div>
   </section>
   <div id="toast" class="toast hidden"></div>
   <script src="session-order.js"></script>

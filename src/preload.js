@@ -15,4 +15,7 @@ contextBridge.exposeInMainWorld("ccPanel", {
   onSessions: (cb) => {
     ipcRenderer.on("sessions", (_e, snapshot) => cb(snapshot));
   },
+  onHookInstallStatus: (cb) => {
+    ipcRenderer.on("hook-install-status", (_e, status) => cb(status));
+  },
 });

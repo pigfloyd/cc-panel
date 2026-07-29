@@ -30,6 +30,8 @@ const els = {
   settingSound: document.getElementById("setting-sound"),
   settingAutoLaunch: document.getElementById("setting-auto-launch"),
   settingTerminalExecutable: document.getElementById("setting-terminal-executable"),
+  claudeHookStatus: document.getElementById("claude-hook-status"),
+  codexHookStatus: document.getElementById("codex-hook-status"),
 };
 
 let sessions = [];
@@ -82,6 +84,37 @@ function detailText(s) {
   if (s.state === "working" && s.currentTool) return `工具：${s.currentTool}`;
   if (s.lastPrompt) return s.lastPrompt;
   return "";
+}
+
+const HOOK_STATUS_LABELS = {
+  installed: "已安装",
+  not_installed: "未安装",
+  failed: "失败",
+  pending_trust: "待信任",
+};
+
+function renderHookInstallStatus(status) {
+  const clients = status && status.clients ? status.clients : {};
+  const clientStates = [];
+  for (const [name, element] of [
+    ["claude", els.claudeHookStatus],
+    ["codex", els.codexHookStatus],
+  ]) {
+    const client = clients[name] || { status: "not_installed" };
+    const clientStatus = HOOK_STATUS_LABELS[client.status] ? client.status : "not_installed";
+    clientStates.push(clientStatus);
+    element.dataset.status = clientStatus;
+    element.textContent = HOOK_STATUS_LABELS[clientStatus];
+    element.title = client.error || (clientStatus === "pending_trust"
+      ? "信任并启动 Claude Code 后将自动安装"
+      : "");
+  }
+  const hasFailure = clientStates.includes("failed");
+  const needsAttention = hasFailure || clientStates.includes("not_installed");
+  els.btnSettings.classList.toggle("has-hook-error", hasFailure);
+  els.btnSettings.classList.toggle("has-hook-warning", !hasFailure && needsAttention);
+  els.btnSettings.title = hasFailure ? "设置（Hook 安装失败）" : "设置";
+  els.btnSettings.setAttribute("aria-label", els.btnSettings.title);
 }
 
 function directoryName(s) {
@@ -634,13 +667,12 @@ setInterval(() => refreshStateAges(), 1000);
     return;
   }
   const state = await window.ccPanel.getState();
+  window.ccPanel.onHookInstallStatus(renderHookInstallStatus);
   cfg = state.config;
   refreshConfigButtons();
   renderTerminalHistory();
   await scanTerminalApps();
-  if (state.hookInstallStatus && !state.hookInstallStatus.ok) {
-    showToast("hooks 自动安装失败：" + (state.hookInstallStatus.error || "未知错误"));
-  }
+  renderHookInstallStatus(state.hookInstallStatus);
   if (state.autoLaunchStatus && !state.autoLaunchStatus.ok) {
     showToast("开机自启动设置失败：" + (state.autoLaunchStatus.error || "未知错误"));
   }

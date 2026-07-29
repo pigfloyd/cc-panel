@@ -152,24 +152,54 @@ function refreshRunningSessions() {
 function installHooks() {
   try {
     const details = installer.install();
+    const clients = {
+      claude: details.claude,
+      codex: details.codex,
+    };
+    const failures = Object.entries(clients)
+      .filter(([, client]) => client.status === "failed")
+      .map(([name, client]) => `${name === "claude" ? "Claude" : "Codex"}: ${client.error || "未知错误"}`);
     return {
-      ok: true,
-      installed: installer.isInstalled(),
-      claudeInstalled: installer.isClaudeInstalled(),
-      codexInstalled: installer.isCodexInstalled(),
+      ok: details.ok,
+      installed: Object.values(clients).every((client) => client.status === "installed"),
+      claudeInstalled: clients.claude.status === "installed",
+      codexInstalled: clients.codex.status === "installed",
+      clients,
+      error: failures.join("; ") || undefined,
       details,
     };
   } catch (err) {
-    return { ok: false, error: String(err.message || err) };
+    const error = String(err.message || err);
+    const clients = {
+      claude: { status: "failed", error },
+      codex: { status: "failed", error },
+    };
+    return { ok: false, installed: false, clients, error };
   }
 }
 
 function repairMissingHooks() {
-  if (installer.isInstalled()) return;
-  hookInstallStatus = installHooks();
-  if (!hookInstallStatus.ok) {
+  const inspected = installer.inspect();
+  const needsRepair = Object.values(inspected).some((client) => (
+    client.status === "not_installed" || client.status === "failed"
+  ));
+  const nextStatus = needsRepair
+    ? installHooks()
+    : {
+        ok: true,
+        installed: Object.values(inspected).every((client) => client.status === "installed"),
+        claudeInstalled: inspected.claude.status === "installed",
+        codexInstalled: inspected.codex.status === "installed",
+        clients: inspected,
+      };
+  const previousSummary = JSON.stringify(hookInstallStatus && hookInstallStatus.clients);
+  const nextSummary = JSON.stringify(nextStatus.clients);
+  hookInstallStatus = nextStatus;
+  if (previousSummary === nextSummary) return;
+  if (Object.values(hookInstallStatus.clients).some((client) => client.status === "failed")) {
     console.error("[cc-panel] hook repair failed:", hookInstallStatus.error);
   }
+  if (win && !win.isDestroyed()) win.webContents.send("hook-install-status", hookInstallStatus);
 }
 
 function loginItemOptions() {
@@ -255,7 +285,7 @@ function createWindow() {
 function registerIpc() {
   ipcMain.handle("get-state", () => ({
     sessions: store.snapshot(),
-    hooksInstalled: installer.isInstalled(),
+    hooksInstalled: hookInstallStatus ? hookInstallStatus.installed : installer.isInstalled(),
     claudeInstalled: installer.isClaudeInstalled(),
     codexInstalled: installer.isCodexInstalled(),
     hookInstallStatus,
