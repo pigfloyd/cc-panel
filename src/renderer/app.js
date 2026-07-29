@@ -13,6 +13,7 @@ const { clientLabel, stateAgeLabel } = sessionMeta;
 const query = new URLSearchParams(window.location.search);
 const isDemoMode = query.get("demo") === "1";
 const IDLE_STACK_COLLAPSE_DELAY_MS = 3000;
+const WORKING_LIGHT_CYCLE_MS = 2400;
 document.body.classList.toggle("demo-mode", isDemoMode);
 
 const els = {
@@ -206,6 +207,13 @@ function buildCard(s) {
   card.className = "card" + (s.hasWindow ? "" : " no-window");
   card.dataset.state = s.state;
   card.dataset.id = s.id;
+  if (s.state === "working" && Number.isFinite(Number(s.stateSince))) {
+    const stateAge = Math.max(0, Date.now() - Number(s.stateSince));
+    card.style.setProperty(
+      "--working-animation-delay",
+      `${-(stateAge % WORKING_LIGHT_CYCLE_MS)}ms`,
+    );
+  }
 
   const head = document.createElement("div");
   head.className = "head";
@@ -359,14 +367,16 @@ function applySnapshot(snapshot) {
   console.log(`[applySnapshot] 收到 ${snapshot.length} 个会话:`, snapshot.map(s => ({ id: s.id, state: s.state, client: s.client })));
   let hasNotifiableChange = false;
   for (const s of snapshot) {
-    const prev = prevStates.get(s.id);
+    const key = s.cardKey || s.id;
+    const prev = prevStates.get(key);
     if (prev !== undefined && prev !== s.state && NOTIFY_STATES.has(s.state)) {
       hasNotifiableChange = true;
     }
-    prevStates.set(s.id, s.state);
+    prevStates.set(key, s.state);
   }
-  for (const id of [...prevStates.keys()]) {
-    if (!snapshot.some((s) => s.id === id)) prevStates.delete(id);
+  const activeKeys = new Set(snapshot.map((s) => s.cardKey || s.id));
+  for (const key of [...prevStates.keys()]) {
+    if (!activeKeys.has(key)) prevStates.delete(key);
   }
 
   sessions = snapshot;

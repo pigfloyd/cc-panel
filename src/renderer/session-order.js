@@ -4,15 +4,18 @@ function createStableSessionOrder() {
 
   return function orderSessions(snapshot) {
     for (const session of snapshot) {
-      if (!positions.has(session.id)) positions.set(session.id, nextPosition++);
+      const key = session.cardKey || session.id;
+      if (!positions.has(key)) positions.set(key, nextPosition++);
     }
 
-    const activeIds = new Set(snapshot.map((session) => session.id));
-    for (const id of positions.keys()) {
-      if (!activeIds.has(id)) positions.delete(id);
+    const activeKeys = new Set(snapshot.map((session) => session.cardKey || session.id));
+    for (const key of positions.keys()) {
+      if (!activeKeys.has(key)) positions.delete(key);
     }
 
-    return [...snapshot].sort((a, b) => positions.get(a.id) - positions.get(b.id));
+    return [...snapshot].sort((a, b) =>
+      positions.get(a.cardKey || a.id) - positions.get(b.cardKey || b.id)
+    );
   };
 }
 

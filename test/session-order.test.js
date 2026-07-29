@@ -62,3 +62,19 @@ test("appends newly seen sessions and drops removed ones", () => {
     { id: "a", state: "idle" },
   ])), ["b", "c", "a"]);
 });
+
+test("keeps a startup card in place when its temporary session ID is replaced", () => {
+  const orderSessions = createStableSessionOrder();
+
+  assert.deepEqual(ids(orderSessions([
+    { id: "captured:codex:41", cardKey: "card:1", state: "idle" },
+    { id: "captured:codex:42", cardKey: "card:2", state: "idle" },
+  ])), ["captured:codex:41", "captured:codex:42"]);
+
+  // SessionStore appends the real session object after the remaining captured
+  // card. The stable card key must retain the original visual order.
+  assert.deepEqual(ids(orderSessions([
+    { id: "captured:codex:42", cardKey: "card:2", state: "idle" },
+    { id: "codex:real-session", cardKey: "card:1", state: "working" },
+  ])), ["codex:real-session", "captured:codex:42"]);
+});

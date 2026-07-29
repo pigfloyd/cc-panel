@@ -387,6 +387,66 @@ test("marks a Codex escalated command as waiting for approval until answered", (
   }
 });
 
+test("keeps waiting when only one of multiple Codex approvals starts", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-panel-multi-approval-"));
+  const transcript = path.join(tempDir, "codex.jsonl");
+
+  try {
+    fs.writeFileSync(transcript, `${JSON.stringify({ type: "session_start" })}\n`);
+    const store = new SessionStore();
+    store.dispose();
+    try {
+      store.handleEvent({
+        session_id: "codex:multi-approval",
+        event: "UserPromptSubmit",
+        client: "codex",
+        transcript_path: transcript,
+        ts: 100,
+      });
+
+      for (const [callId, timestamp] of [
+        ["call_approval_a", "2026-07-29T06:00:00.000Z"],
+        ["call_approval_b", "2026-07-29T06:00:01.000Z"],
+      ]) {
+        fs.appendFileSync(transcript, `${JSON.stringify({
+          timestamp,
+          type: "response_item",
+          payload: {
+            type: "custom_tool_call",
+            name: "exec",
+            call_id: callId,
+            input: 'await tools.shell_command({ command: "npm test", sandbox_permissions: "require_escalated" })',
+          },
+        })}\n`);
+      }
+      store._pollTranscripts();
+      assert.equal(store.snapshot()[0].state, "needs_input");
+
+      store.handleEvent({
+        session_id: "codex:multi-approval",
+        event: "PreToolUse",
+        client: "codex",
+        tool_name: "shell_command",
+        ts: Date.parse("2026-07-29T06:00:02.000Z"),
+      });
+      assert.equal(store.snapshot()[0].state, "needs_input");
+
+      store.handleEvent({
+        session_id: "codex:multi-approval",
+        event: "PreToolUse",
+        client: "codex",
+        tool_name: "shell_command",
+        ts: Date.parse("2026-07-29T06:00:03.000Z"),
+      });
+      assert.equal(store.snapshot()[0].state, "working");
+    } finally {
+      store.dispose();
+    }
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("keeps a Codex question waiting when a delayed PreToolUse hook arrives", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-panel-question-race-"));
   const transcript = path.join(tempDir, "codex.jsonl");
@@ -423,7 +483,7 @@ test("keeps a Codex question waiting when a delayed PreToolUse hook arrives", ()
         tool_name: "request_user_input",
         ts: Date.parse("2026-07-17T01:25:01.441Z"),
       });
-      assert.equal(store.snapshot()[0].state, "working");
+      assert.equal(store.snapshot()[0].state, "needs_input");
 
       store._pollTranscripts();
       assert.equal(store.snapshot()[0].state, "needs_input");
@@ -510,6 +570,7 @@ test("replaces a startup-captured card when its real hook session arrives", () =
       agent_pid: 42,
       captured: true,
     });
+    const capturedCardKey = store.snapshot()[0].cardKey;
     store.handleEvent({
       session_id: "codex:real-session",
       event: "SessionStart",
@@ -518,6 +579,7 @@ test("replaces a startup-captured card when its real hook session arrives", () =
     });
 
     assert.deepEqual(store.snapshot().map((session) => session.id), ["codex:real-session"]);
+    assert.equal(store.snapshot()[0].cardKey, capturedCardKey);
   } finally {
     store.dispose();
   }
@@ -743,6 +805,7 @@ test("does not add a captured duplicate after a real hook session exists", () =>
 
     assert.deepEqual(store.snapshot(), [{
       id: "claude:real-session",
+      cardKey: "card:1",
       project: "project",
       cwd: "C:\\work\\project",
       client: "claude",
@@ -783,6 +846,7 @@ test("replaces a startup-captured card when wrapper agent PIDs differ", () => {
 
     assert.deepEqual(store.snapshot(), [{
       id: "codex:real-session",
+      cardKey: "card:1",
       project: "project",
       cwd: "C:\\work\\project",
       client: "codex",

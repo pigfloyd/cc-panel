@@ -25,6 +25,7 @@ class SessionStore {
   constructor(onUpdate) {
     this.sessions = new Map();
     this.sessionAliases = new Map();
+    this.nextCardKey = 1;
     this.onUpdate = onUpdate || (() => {});
     this._pollTimer = setInterval(() => this._poll(), POLL_MS);
     this._transcriptTimer = setInterval(() => this._pollTranscripts(), TRANSCRIPT_POLL_MS);
@@ -64,6 +65,7 @@ class SessionStore {
       if (body.event === "SessionEnd") return;
       s = {
         id,
+        cardKey: `card:${this.nextCardKey++}`,
         cwd: "",
         project: "",
         client: body.client || null,
@@ -86,7 +88,7 @@ class SessionStore {
         transcriptApprovalCalls: new Set(),
         transcriptInputSince: null,
         waitingForTranscriptInput: false,
-        lastPreToolUseTs: null,
+        unmatchedPreToolUseTimestamps: [],
       };
       this.sessions.set(id, s);
     }
@@ -143,9 +145,13 @@ class SessionStore {
       s.currentTool = null;
     }
     if (body.event === "PreToolUse") {
-      s.lastPreToolUseTs = ts;
-      for (const callId of s.transcriptApprovalCalls) s.transcriptInputCalls.delete(callId);
-      s.transcriptApprovalCalls.clear();
+      const [callId] = s.transcriptApprovalCalls;
+      if (callId) {
+        s.transcriptApprovalCalls.delete(callId);
+        s.transcriptInputCalls.delete(callId);
+      } else {
+        s.unmatchedPreToolUseTimestamps.push(ts);
+      }
       if (s.transcriptInputCalls.size === 0) s.transcriptInputSince = null;
     }
     if (body.event === "UserPromptSubmit") {
@@ -156,11 +162,14 @@ class SessionStore {
       s.transcriptApprovalCalls.clear();
       s.transcriptInputSince = null;
       s.waitingForTranscriptInput = false;
-      s.lastPreToolUseTs = null;
+      s.unmatchedPreToolUseTimestamps = [];
     }
     if (body.event === "Notification") s.message = body.message || null;
     else if (body.event !== "PreToolUse") s.message = null;
-    if (next !== s.state) this._setState(s, next, ts);
+    const effectiveNext = body.event === "PreToolUse" && s.transcriptInputCalls.size > 0
+      ? "needs_input"
+      : next;
+    if (effectiveNext !== s.state) this._setState(s, effectiveNext, ts);
 
     this._emit();
   }
@@ -322,7 +331,8 @@ class SessionStore {
     }
     if (!match) return;
 
-    const [otherId] = match;
+    const [otherId, other] = match;
+    session.cardKey = other.cardKey;
     this.sessions.delete(otherId);
     this.sessionAliases.set(otherId, session.id);
   }
@@ -382,6 +392,7 @@ class SessionStore {
       session.windowMapping = other.windowMapping;
       session.windowAlive = other.windowAlive;
     }
+    session.cardKey = other.cardKey;
     this.sessions.delete(otherId);
   }
 
@@ -402,7 +413,7 @@ class SessionStore {
     s.transcriptApprovalCalls.clear();
     s.transcriptInputSince = null;
     s.waitingForTranscriptInput = false;
-    s.lastPreToolUseTs = null;
+    s.unmatchedPreToolUseTimestamps = [];
   }
 
   _pollTranscripts() {
@@ -442,7 +453,7 @@ class SessionStore {
       s.transcriptApprovalCalls.clear();
       s.transcriptInputSince = null;
       s.waitingForTranscriptInput = false;
-      s.lastPreToolUseTs = null;
+      s.unmatchedPreToolUseTimestamps = [];
       this._setState(s, terminalOutcome.state, ts);
       changed = true;
     }
@@ -487,6 +498,7 @@ class SessionStore {
   snapshot() {
     return [...this.sessions.values()].map((s) => ({
       id: s.id,
+      cardKey: s.cardKey,
       project: s.project || "(unknown)",
       cwd: s.cwd,
       client: s.client,
@@ -719,7 +731,14 @@ function updateTranscriptInputCalls(session, parsed) {
   if (parsed.inputStarted) {
     // The tool hook can arrive before the next transcript poll after a fast
     // approval. Do not resurrect an approval that the tool has already begun.
-    if (parsed.approvalStarted && Number(session.lastPreToolUseTs) >= parsed.timestamp) return;
+    if (parsed.approvalStarted) {
+      session.unmatchedPreToolUseTimestamps = session.unmatchedPreToolUseTimestamps
+        .filter((timestamp) => timestamp >= parsed.timestamp);
+      if (session.unmatchedPreToolUseTimestamps.length > 0) {
+        session.unmatchedPreToolUseTimestamps.shift();
+        return;
+      }
+    }
     if (session.transcriptInputCalls.size === 0) {
       session.transcriptInputSince = parsed.timestamp;
     }

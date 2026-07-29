@@ -107,6 +107,7 @@ input:focus-visible {
 .card {
   --state: var(--s-idle);
   --state-soft: var(--s-idle-soft);
+  --state-rgb: 104, 115, 129;
 
   position: relative;
   width: 100%;
@@ -120,14 +121,64 @@ input:focus-visible {
   padding: 12px;
   overflow: hidden;
   color: inherit;
-  background: var(--state-soft);
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-1);
+  isolation: isolate;
   text-align: left;
   cursor: pointer;
   appearance: none;
   transition: border-color 0.14s ease, box-shadow 0.14s ease, transform 0.14s ease;
+}
+
+/* The status color lives under the glass on the right side of the card. */
+.card::before,
+.card::after {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  bottom: 4px;
+  width: clamp(96px, 34%, 136px);
+  border-radius: 4px;
+  content: "";
+  pointer-events: none;
+}
+
+.card::before {
+  z-index: 0;
+  top: auto;
+  right: 24px;
+  bottom: 8px;
+  width: 62px;
+  height: 62px;
+  background: rgb(var(--state-rgb));
+  border: 0;
+  border-radius: 50%;
+  box-shadow:
+    0 0 36px 10px rgba(var(--state-rgb), 0.76),
+    0 0 88px 30px rgba(var(--state-rgb), 0.4);
+  filter: blur(7px) saturate(115%);
+  opacity: 1;
+}
+
+.card::after {
+  z-index: 1;
+  overflow: hidden;
+  background-color: rgba(255, 255, 255, 0.2);
+  background-image:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.4), transparent 40%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.22) 0 1px, transparent 1px 8px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.2) 0 1px, transparent 1px 8px);
+  background-size: 100% 100%, 8px 8px, 8px 8px;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: blur(11px) saturate(120%);
+}
+
+.card > * {
+  position: relative;
+  z-index: 2;
 }
 
 .card:hover {
@@ -157,10 +208,32 @@ input:focus-visible {
   transform: none;
 }
 
-.card[data-state="working"] { --state: var(--s-working); --state-soft: var(--s-working-soft); }
-.card[data-state="needs_input"] { --state: var(--s-needs); --state-soft: var(--s-needs-soft); }
-.card[data-state="done"] { --state: var(--s-done); --state-soft: var(--s-done-soft); }
-.card[data-state="error"] { --state: var(--s-error); --state-soft: var(--s-error-soft); }
+.card[data-state="working"] { --state: var(--s-working); --state-soft: var(--s-working-soft); --state-rgb: 47, 111, 235; }
+.card[data-state="needs_input"] { --state: var(--s-needs); --state-soft: var(--s-needs-soft); --state-rgb: 201, 56, 80; }
+.card[data-state="done"] { --state: var(--s-done); --state-soft: var(--s-done-soft); --state-rgb: 34, 131, 90; }
+.card[data-state="error"] { --state: var(--s-error); --state-soft: var(--s-error-soft); --state-rgb: 168, 97, 0; }
+
+.card[data-state="working"]::before {
+  transform-origin: center;
+  animation: working-light-breathe 1.2s ease-in-out infinite alternate;
+  animation-delay: var(--working-animation-delay, 0s);
+  will-change: transform, opacity;
+}
+
+@keyframes working-light-breathe {
+  from {
+    opacity: 0.72;
+    transform: scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+.card[data-state="idle"]::before {
+  opacity: 0;
+}
 
 .card .head {
   grid-column: 1;
@@ -218,6 +291,10 @@ input:focus-visible {
   white-space: nowrap;
 }
 
+.card[data-state="idle"] .state-label {
+  border-color: rgba(var(--state-rgb), 0.34);
+}
+
 .card[data-state="working"] .state-label {
   position: relative;
   overflow: hidden;
@@ -238,50 +315,9 @@ input:focus-visible {
   height: 5px;
   border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 0 0 rgba(47, 111, 235, 0.28);
   content: "";
   pointer-events: none;
   transform: translateY(-50%);
-  animation: working-dot-pulse 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-}
-
-.card[data-state="working"] .state-label::after {
-  position: absolute;
-  top: -50%;
-  bottom: -50%;
-  left: -18px;
-  width: 12px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.78), transparent);
-  content: "";
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(0) rotate(12deg);
-  animation: working-label-sheen 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-}
-
-@keyframes working-dot-pulse {
-  0%, 100% {
-    opacity: 0.72;
-    box-shadow: 0 0 0 0 rgba(47, 111, 235, 0.22);
-  }
-  50% {
-    opacity: 1;
-    box-shadow: 0 0 0 3px rgba(47, 111, 235, 0.09);
-  }
-}
-
-@keyframes working-label-sheen {
-  0%, 28% {
-    opacity: 0;
-    transform: translateX(0) rotate(12deg);
-  }
-  42% {
-    opacity: 0.8;
-  }
-  58%, 100% {
-    opacity: 0;
-    transform: translateX(78px) rotate(12deg);
-  }
 }
 
 .card .session-context {
@@ -378,7 +414,7 @@ input:focus-visible {
 .idle-stack-count {
   margin-left: 5px;
   padding-left: 5px;
-  border-left: 1px solid currentColor;
+  border-left: 1px solid #c8d0d8;
   font-variant-numeric: tabular-nums;
 }
 
@@ -400,16 +436,11 @@ input:focus-visible {
   line-height: 1.65;
 }
 
-.empty::before {
-  content: "";
-  width: 42px;
-  height: 32px;
+.empty-icon {
+  width: 96px;
+  height: 96px;
   margin-bottom: 8px;
-  border: 1px solid var(--border-strong);
-  border-left: 5px solid var(--s-idle);
-  border-radius: var(--radius);
-  background: var(--panel);
-  box-shadow: 0 7px 0 -3px var(--bg), 0 7px 0 -2px var(--border);
+  object-fit: contain;
 }
 
 .empty p:first-child {
