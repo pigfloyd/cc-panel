@@ -143,6 +143,90 @@ test("recognizes Codex and Claude transcript interruption records", () => {
   })), null);
 });
 
+test("marks a Codex task_complete error as an abnormal session", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-panel-task-error-"));
+  const transcript = path.join(tempDir, "codex.jsonl");
+
+  try {
+    fs.writeFileSync(transcript, `${JSON.stringify({ type: "session_start" })}\n`);
+    const store = new SessionStore();
+    store.dispose();
+    try {
+      store.handleEvent({
+        session_id: "codex:rate-limited",
+        event: "UserPromptSubmit",
+        client: "codex",
+        transcript_path: transcript,
+        tool_name: "exec",
+        ts: 100,
+      });
+
+      fs.appendFileSync(transcript, `${JSON.stringify({
+        timestamp: "2026-07-28T08:59:20.331Z",
+        type: "event_msg",
+        payload: {
+          type: "task_complete",
+          error: {
+            message: "exceeded retry limit, last status: 429 Too Many Requests",
+            codex_error_info: {
+              response_too_many_failed_attempts: { http_status_code: 429 },
+            },
+          },
+        },
+      })}\n`);
+
+      store._pollTranscripts();
+      const [session] = store.snapshot();
+      assert.equal(session.state, "error");
+      assert.equal(session.stateSince, Date.parse("2026-07-28T08:59:20.331Z"));
+      assert.equal(session.currentTool, null);
+    } finally {
+      store.dispose();
+    }
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("does not apply a previous Codex task error after a newer turn starts", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-panel-stale-task-error-"));
+  const transcript = path.join(tempDir, "codex.jsonl");
+
+  try {
+    fs.writeFileSync(transcript, `${JSON.stringify({ type: "session_start" })}\n`);
+    const store = new SessionStore();
+    store.dispose();
+    try {
+      store.handleEvent({
+        session_id: "codex:recovered",
+        event: "UserPromptSubmit",
+        client: "codex",
+        transcript_path: transcript,
+        ts: 100,
+      });
+      fs.appendFileSync(transcript, [
+        JSON.stringify({
+          timestamp: "2026-07-28T08:59:20.331Z",
+          type: "event_msg",
+          payload: { type: "task_complete", error: { message: "rate limited" } },
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-28T09:00:47.919Z",
+          type: "event_msg",
+          payload: { type: "task_started", turn_id: "new-turn" },
+        }),
+      ].join("\n") + "\n");
+
+      store._pollTranscripts();
+      assert.equal(store.snapshot()[0].state, "working");
+    } finally {
+      store.dispose();
+    }
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("marks a Codex request_user_input call as waiting for input until answered", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-panel-question-"));
   const transcript = path.join(tempDir, "codex.jsonl");

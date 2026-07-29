@@ -395,7 +395,8 @@ els.newTerminalControl.addEventListener("mouseleave", scheduleTerminalHistoryClo
 els.newTerminalControl.addEventListener("focusout", (event) => {
   if (!els.newTerminalControl.contains(event.relatedTarget)) scheduleTerminalHistoryClose();
 });
-els.btnCollapseTerminals.addEventListener("click", async () => {
+async function minimizeAllTerminals() {
+  if (els.btnCollapseTerminals.disabled) return;
   if (isDemoMode) {
     showToast("Demo 模式不会操作终端窗口");
     return;
@@ -415,7 +416,9 @@ els.btnCollapseTerminals.addEventListener("click", async () => {
   } finally {
     els.btnCollapseTerminals.disabled = false;
   }
-});
+}
+
+els.btnCollapseTerminals.addEventListener("click", minimizeAllTerminals);
 
 
 els.settingAlwaysOnTop.addEventListener("change", async () => {

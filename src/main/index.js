@@ -1,5 +1,5 @@
 // index.js — Electron main entry for cc-panel.
-const { app, BrowserWindow, ipcMain, screen, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, screen, dialog, globalShortcut } = require("electron");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -55,6 +55,7 @@ let sessionCapturePromise = null;
 let hookHealthTimer = null;
 
 const TERMINAL_COMMANDS = new Set(["codex", "claude"]);
+const MINIMIZE_ALL_SHORTCUT = "CommandOrControl+Shift+Z";
 const SESSION_CAPTURE_INTERVAL_MS = 5000;
 const HOOK_HEALTH_INTERVAL_MS = 5000;
 
@@ -106,6 +107,7 @@ async function main() {
   autoLaunchStatus = setAutoLaunch(cfg.autoLaunch);
   createWindow();
   registerIpc();
+  registerShortcuts();
   void refreshRunningSessions();
   sessionCaptureTimer = setInterval(() => void refreshRunningSessions(), SESSION_CAPTURE_INTERVAL_MS);
   hookHealthTimer = setInterval(repairMissingHooks, HOOK_HEALTH_INTERVAL_MS);
@@ -118,6 +120,17 @@ async function main() {
     app.quit();
   });
 }
+
+function registerShortcuts() {
+  const registered = globalShortcut.register(MINIMIZE_ALL_SHORTCUT, () => {
+    if (store) store.minimizeAll();
+  });
+  if (!registered) {
+    console.error(`[cc-panel] shortcut unavailable: ${MINIMIZE_ALL_SHORTCUT}`);
+  }
+}
+
+app.on("will-quit", () => globalShortcut.unregisterAll());
 
 function refreshRunningSessions() {
   if (sessionCapturePromise) return sessionCapturePromise;

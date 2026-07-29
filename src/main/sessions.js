@@ -398,7 +398,7 @@ class SessionStore {
     for (const s of this.sessions.values()) {
       if ((s.state !== "working" && s.state !== "needs_input") || !s.transcriptPath) continue;
       const wasWaitingForQuestion = s.waitingForTranscriptQuestion;
-      const interruptedAt = readTranscriptInterruption(s);
+      const terminalOutcome = readTranscriptOutcome(s);
       const waitingForQuestion = s.transcriptQuestionCalls.size > 0;
 
       if (waitingForQuestion !== wasWaitingForQuestion) {
@@ -419,9 +419,9 @@ class SessionStore {
         changed = true;
       }
 
-      if (interruptedAt === null) continue;
+      if (terminalOutcome === null) continue;
 
-      const ts = Math.max(interruptedAt, s.lastEventTs);
+      const ts = Math.max(terminalOutcome.timestamp, s.lastEventTs);
       s.lastEventTs = ts;
       s.turnStopped = true;
       s.currentTool = null;
@@ -429,7 +429,7 @@ class SessionStore {
       s.transcriptQuestionCalls.clear();
       s.transcriptQuestionSince = null;
       s.waitingForTranscriptQuestion = false;
-      this._setState(s, "idle", ts);
+      this._setState(s, terminalOutcome.state, ts);
       changed = true;
     }
     if (changed) this._emit();
@@ -556,7 +556,7 @@ function transcriptSize(transcriptPath) {
   }
 }
 
-function readTranscriptInterruption(session) {
+function readTranscriptOutcome(session) {
   const size = transcriptSize(session.transcriptPath);
   if (size === null) return null;
   if (session.transcriptOffset === null || size < session.transcriptOffset) {
@@ -588,11 +588,11 @@ function readTranscriptInterruption(session) {
   if (skipped) parts.shift();
   session.transcriptRemainder = parts.pop() || "";
 
-  let interruptedAt = null;
+  let terminalOutcome = null;
   for (const line of parts) {
     const parsed = parseTranscriptLine(line);
     updateTranscriptQuestionCalls(session, parsed);
-    if (parsed.interruptedAt !== null) interruptedAt = parsed.interruptedAt;
+    terminalOutcome = nextTranscriptOutcome(terminalOutcome, parsed);
   }
 
   // JSONL writers do not all append a final newline. Parse a complete trailing
@@ -601,9 +601,9 @@ function readTranscriptInterruption(session) {
     const parsed = parseTranscriptLine(session.transcriptRemainder);
     if (parsed.valid) session.transcriptRemainder = "";
     if (parsed.valid) updateTranscriptQuestionCalls(session, parsed);
-    if (parsed.interruptedAt !== null) interruptedAt = parsed.interruptedAt;
+    terminalOutcome = nextTranscriptOutcome(terminalOutcome, parsed);
   }
-  return interruptedAt;
+  return terminalOutcome;
 }
 
 function transcriptInterruptionTimestamp(line) {
@@ -615,10 +615,20 @@ function parseTranscriptLine(line) {
   try {
     entry = JSON.parse(line);
   } catch {
-    return { valid: false, interruptedAt: null, questionStarted: null, questionFinished: null };
+    return {
+      valid: false,
+      interruptedAt: null,
+      errorAt: null,
+      turnStarted: false,
+      questionStarted: null,
+      questionFinished: null,
+    };
   }
 
   const payload = entry && entry.payload;
+  const turnStarted = entry.type === "event_msg" && payload && payload.type === "task_started";
+  const taskFailed = entry.type === "event_msg" && payload &&
+    payload.type === "task_complete" && !!payload.error;
   const questionStarted = entry.type === "response_item" && payload &&
     payload.type === "function_call" && payload.name === "request_user_input" &&
     typeof payload.call_id === "string" ? payload.call_id : null;
@@ -646,6 +656,8 @@ function parseTranscriptLine(line) {
     return {
       valid: true,
       interruptedAt: null,
+      errorAt: taskFailed ? transcriptTimestamp(entry) : null,
+      turnStarted,
       questionStarted,
       questionFinished,
       timestamp: transcriptTimestamp(entry),
@@ -655,10 +667,22 @@ function parseTranscriptLine(line) {
   return {
     valid: true,
     interruptedAt: transcriptTimestamp(entry),
+    errorAt: null,
+    turnStarted,
     questionStarted,
     questionFinished,
     timestamp: transcriptTimestamp(entry),
   };
+}
+
+function nextTranscriptOutcome(current, parsed) {
+  if (!parsed.valid) return current;
+  // Polling can lag behind hooks. A newer turn start makes a terminal record
+  // from the previous turn stale, so do not apply it to the active turn.
+  if (parsed.turnStarted) return null;
+  if (parsed.errorAt !== null) return { state: "error", timestamp: parsed.errorAt };
+  if (parsed.interruptedAt !== null) return { state: "idle", timestamp: parsed.interruptedAt };
+  return current;
 }
 
 function updateTranscriptQuestionCalls(session, parsed) {
