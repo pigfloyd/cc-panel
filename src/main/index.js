@@ -58,6 +58,12 @@ const TERMINAL_COMMANDS = new Set(["codex", "claude"]);
 const MINIMIZE_ALL_SHORTCUT = "CommandOrControl+Shift+Z";
 const SESSION_CAPTURE_INTERVAL_MS = 5000;
 const HOOK_HEALTH_INTERVAL_MS = 5000;
+const APP_ICON_PATH = path.join(
+  __dirname,
+  "..",
+  "assets",
+  process.platform === "win32" ? "app-icon.ico" : "app-icon.png",
+);
 
 function normalizeTerminalCommand(value) {
   return TERMINAL_COMMANDS.has(value) ? value : "claude";
@@ -211,6 +217,7 @@ function createWindow() {
   const bounds = ensureVisibleBounds(cfg.bounds, displays, defaultBounds(displays));
   win = new BrowserWindow({
     ...bounds,
+    icon: APP_ICON_PATH,
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
     backgroundColor: "#eef1f4",

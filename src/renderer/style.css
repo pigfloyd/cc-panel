@@ -192,20 +192,6 @@ input:focus-visible {
   white-space: nowrap;
 }
 
-.card .working-indicator {
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--s-working);
-  animation: working-indicator-breathe 1.8s ease-in-out infinite;
-}
-
-@keyframes working-indicator-breathe {
-  0%, 100% { opacity: 0.65; box-shadow: 0 0 0 0 rgba(47, 111, 235, 0); }
-  50% { opacity: 1; box-shadow: 0 0 0 5px rgba(47, 111, 235, 0.14); }
-}
-
 .card .meta {
   grid-column: 2;
   grid-row: 1 / span 3;
@@ -230,6 +216,31 @@ input:focus-visible {
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
+}
+
+.card[data-state="working"] .state-label {
+  position: relative;
+}
+
+.card[data-state="working"] .state-label::after {
+  position: absolute;
+  inset: -1px;
+  border: 1px solid rgba(47, 111, 235, 0.5);
+  border-radius: inherit;
+  content: "";
+  pointer-events: none;
+  animation: working-label-ripple 1.8s ease-out infinite;
+}
+
+@keyframes working-label-ripple {
+  0% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  75%, 100% {
+    opacity: 0;
+    transform: scale(1.35, 1.65);
+  }
 }
 
 .card .session-context {
