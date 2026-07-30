@@ -12,6 +12,7 @@ const DEFAULTS = {
   alwaysOnTop: true,
   sound: false,
   showPromptSummary: true,
+  language: "zh-CN",
   autoLaunch: true,
   hooksEnabled: true,
   onboardingCompleted: false,

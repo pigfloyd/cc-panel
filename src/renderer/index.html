@@ -10,53 +10,53 @@
   <main id="cards"></main>
   <div id="empty" class="empty hidden">
     <img class="empty-icon" src="../assets/app-icon.png" alt="" />
-    <p>还没有 Claude Code 或 Codex 会话</p>
-    <p class="hint">打开终端后启动 <code>claude</code> 或 <code>codex</code>，<br/>会话卡片会自动出现在这里</p>
+    <p data-i18n="empty.title">还没有 Claude Code 或 Codex 会话</p>
+    <p class="hint"><span data-i18n="empty.launchPrefix">打开终端后启动</span> <code>claude</code> / <code>codex</code><span data-i18n="empty.launchSuffix">，</span><br/><span data-i18n="empty.cardsAppear">会话卡片会自动出现在这里</span></p>
   </div>
   <section id="onboarding" class="onboarding hidden" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
     <div class="onboarding-panel">
       <header class="onboarding-header">
-        <span class="onboarding-kicker">首次启动</span>
-        <h1 id="onboarding-title">准备 cc-panel</h1>
-        <p>正在自动检查本机环境和实时状态通道。</p>
+        <span class="onboarding-kicker" data-i18n="onboarding.kicker">首次启动</span>
+        <h1 id="onboarding-title" data-i18n="onboarding.title">准备 cc-panel</h1>
+        <p data-i18n="onboarding.description">正在自动检查本机环境和实时状态通道。</p>
       </header>
       <ol class="onboarding-steps">
         <li id="onboarding-step-discover" data-state="pending">
           <span class="onboarding-step-marker" aria-hidden="true">1</span>
-          <span><strong>发现 Claude / Codex</strong><small id="onboarding-discover-detail">正在检测命令行工具</small></span>
+          <span><strong data-i18n="onboarding.discoverTitle">发现 Claude / Codex</strong><small id="onboarding-discover-detail" data-i18n="onboarding.discoverPending">正在检测命令行工具</small></span>
         </li>
         <li id="onboarding-step-hooks" data-state="pending">
           <span class="onboarding-step-marker" aria-hidden="true">2</span>
-          <span><strong>安装 Hook</strong><small id="onboarding-hooks-detail">等待环境检测</small></span>
+          <span><strong data-i18n="onboarding.hooksTitle">安装 Hook</strong><small id="onboarding-hooks-detail" data-i18n="onboarding.hooksPending">等待环境检测</small></span>
         </li>
         <li id="onboarding-step-trust" data-state="pending">
           <span class="onboarding-step-marker" aria-hidden="true">3</span>
-          <span><strong>Codex 信任</strong><small id="onboarding-trust-detail">等待 Hook 安装</small></span>
+          <span><strong data-i18n="onboarding.trustTitle">Codex 信任</strong><small id="onboarding-trust-detail" data-i18n="onboarding.trustPending">等待 Hook 安装</small></span>
         </li>
         <li id="onboarding-step-test" data-state="pending">
           <span class="onboarding-step-marker" aria-hidden="true">4</span>
-          <span><strong>发送测试事件</strong><small id="onboarding-test-detail">等待事件服务</small></span>
+          <span><strong data-i18n="onboarding.testTitle">发送测试事件</strong><small id="onboarding-test-detail" data-i18n="onboarding.testPending">等待事件服务</small></span>
         </li>
       </ol>
       <div id="onboarding-trust-help" class="onboarding-trust-help hidden">
-        <p>Codex 已安装 Hook，还需要你确认一次信任。</p>
+        <p data-i18n="onboarding.trustHelp">Codex 已安装 Hook，还需要你确认一次信任。</p>
         <div>
-          <button id="btn-onboarding-open-codex" type="button">打开 Codex</button>
-          <button id="btn-onboarding-copy-hooks" type="button">复制 /hooks</button>
+          <button id="btn-onboarding-open-codex" type="button" data-i18n="onboarding.openCodex">打开 Codex</button>
+          <button id="btn-onboarding-copy-hooks" type="button" data-i18n="onboarding.copyHooks">复制 /hooks</button>
         </div>
       </div>
       <div id="onboarding-finish" class="onboarding-finish hidden" aria-live="polite">
-        <strong>现在可以关闭向导<br />并开始使用</strong>
+        <strong><span data-i18n="onboarding.finishLine1">现在可以关闭向导</span><br /><span data-i18n="onboarding.finishLine2">并开始使用</span></strong>
       </div>
       <footer class="onboarding-actions">
-        <button id="btn-onboarding-retry" type="button">重新检查</button>
-        <button id="btn-onboarding-close" class="primary" type="button" disabled>关闭向导</button>
+        <button id="btn-onboarding-retry" type="button" data-i18n="onboarding.retry">重新检查</button>
+        <button id="btn-onboarding-close" class="primary" type="button" disabled data-i18n="onboarding.close">关闭向导</button>
       </footer>
     </div>
   </section>
-  <nav class="bottom-toolbar" aria-label="终端操作">
-    <button id="btn-settings" class="icon-btn" type="button" title="设置" aria-label="设置">&#9881;</button>
-    <button id="btn-collapse-terminals" class="icon-btn" type="button" title="收起所有终端窗口（Ctrl+Shift+Z）" aria-label="收起所有终端窗口，快捷键 Ctrl+Shift+Z">
+  <nav class="bottom-toolbar" aria-label="终端操作" data-i18n-aria-label="toolbar.aria">
+    <button id="btn-settings" class="icon-btn" type="button" title="设置" aria-label="设置" data-i18n-title="toolbar.settings" data-i18n-aria-label="toolbar.settings">&#9881;</button>
+    <button id="btn-collapse-terminals" class="icon-btn" type="button" title="收起所有终端窗口（Ctrl+Shift+Z）" aria-label="收起所有终端窗口，快捷键 Ctrl+Shift+Z" data-i18n-title="toolbar.collapseTitle" data-i18n-aria-label="toolbar.collapseAria">
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M6 4h12a2 2 0 0 1 2 2v7" />
         <path d="M4 8h12a2 2 0 0 1 2 2v3" />
@@ -66,76 +66,84 @@
     <div class="new-terminal-control">
       <button id="btn-claude-terminal" class="toolbar-btn toolbar-btn-primary" type="button" aria-haspopup="menu" aria-expanded="false">Claude Code</button>
       <button id="btn-codex-terminal" class="toolbar-btn toolbar-btn-primary" type="button" aria-haspopup="menu" aria-expanded="false">Codex CLI</button>
-      <div id="terminal-history-menu" class="terminal-history-menu hidden" role="menu" aria-label="最近使用的终端路径"></div>
+      <div id="terminal-history-menu" class="terminal-history-menu hidden" role="menu" aria-label="最近使用的终端路径" data-i18n-aria-label="toolbar.historyAria"></div>
     </div>
   </nav>
-  <section id="settings-panel" class="settings-panel hidden" aria-label="设置">
+  <section id="settings-panel" class="settings-panel hidden" aria-label="设置" data-i18n-aria-label="settings.aria">
     <label class="setting-row" for="setting-always-on-top">
-      <span>窗口置顶</span>
+      <span data-i18n="settings.alwaysOnTop">窗口置顶</span>
       <input id="setting-always-on-top" type="checkbox" />
     </label>
     <label class="setting-row" for="setting-sound">
-      <span>状态提示音</span>
+      <span data-i18n="settings.sound">状态提示音</span>
       <input id="setting-sound" type="checkbox" />
     </label>
     <label class="setting-row" for="setting-prompt-summary">
-      <span>显示最后任务</span>
+      <span data-i18n="settings.promptSummary">显示最后任务</span>
       <input id="setting-prompt-summary" type="checkbox" />
     </label>
     <label class="setting-row" for="setting-auto-launch">
-      <span>开机自启动</span>
+      <span data-i18n="settings.autoLaunch">开机自启动</span>
       <input id="setting-auto-launch" type="checkbox" />
     </label>
+    <label class="setting-row" for="setting-language">
+      <span data-i18n="settings.language">界面语言</span>
+      <select id="setting-language" class="setting-terminal-select setting-language-select" aria-label="界面语言" data-i18n-aria-label="settings.languageAria">
+        <option value="zh-CN">Chinese</option>
+        <option value="en">English</option>
+      </select>
+    </label>
     <div class="setting-row">
-      <span>终端程序</span>
-      <select id="setting-terminal-executable" class="setting-terminal-select" aria-label="终端程序">
-        <option value="">正在扫描...</option>
+      <span data-i18n="settings.terminal">终端程序</span>
+      <select id="setting-terminal-executable" class="setting-terminal-select" aria-label="终端程序" data-i18n-aria-label="settings.terminalAria">
+        <option value="" data-i18n="settings.scanning">正在扫描...</option>
       </select>
     </div>
-    <div class="hook-status-group" aria-label="Hook 诊断">
-      <div class="setting-section-label">Hook 诊断</div>
+    <div class="hook-status-group" aria-label="Hook 诊断" data-i18n-aria-label="hook.diagnostics">
+      <div class="setting-section-label" data-i18n="hook.diagnostics">Hook 诊断</div>
       <div class="hook-status-row">
-        <span>最近事件</span>
-        <span id="hook-last-event" class="hook-status-value">尚未收到</span>
+        <span data-i18n="hook.lastEvent">最近事件</span>
+        <span id="hook-last-event" class="hook-status-value" data-i18n="hook.neverReceived">尚未收到</span>
       </div>
       <div class="hook-status-row">
-        <span>事件服务</span>
-        <span id="hook-event-service" class="hook-status" data-status="unknown">检测中</span>
+        <span data-i18n="hook.eventService">事件服务</span>
+        <span id="hook-event-service" class="hook-status" data-status="unknown" data-i18n="hook.checking">检测中</span>
       </div>
       <div class="hook-status-row">
         <span>Claude Hook</span>
-        <span id="claude-hook-status" class="hook-status" data-status="not_installed">未安装</span>
+        <span id="claude-hook-status" class="hook-status" data-status="not_installed" data-i18n="hook.notInstalled">未安装</span>
       </div>
       <div class="hook-status-row">
         <span>Codex Hook</span>
-        <span id="codex-hook-status" class="hook-status" data-status="not_installed">未安装</span>
+        <span id="codex-hook-status" class="hook-status" data-status="not_installed" data-i18n="hook.notInstalled">未安装</span>
       </div>
       <div class="hook-status-row">
-        <span>Codex 信任</span>
+        <span data-i18n="hook.codexTrust">Codex 信任</span>
         <span id="codex-trust-status" class="hook-status" data-status="unknown">--</span>
       </div>
       <div class="hook-status-row">
-        <span>降级模式</span>
-        <span id="hook-fallback-mode" class="hook-status-value">检测中</span>
+        <span data-i18n="hook.fallbackMode">降级模式</span>
+        <span id="hook-fallback-mode" class="hook-status-value" data-i18n="hook.checking">检测中</span>
       </div>
-      <div class="hook-actions" aria-label="Hook 操作">
-        <button id="btn-hook-inspect" type="button">重新检测</button>
-        <button id="btn-hook-install" type="button">重新安装</button>
-        <button id="btn-hook-help" type="button" aria-expanded="false">查看解决步骤</button>
-        <button id="btn-hook-uninstall" class="danger" type="button">卸载</button>
+      <div class="hook-actions" aria-label="Hook 操作" data-i18n-aria-label="hook.actionsAria">
+        <button id="btn-hook-inspect" type="button" data-i18n="hook.inspect">重新检测</button>
+        <button id="btn-hook-install" type="button" data-i18n="hook.install">重新安装</button>
+        <button id="btn-hook-help" type="button" aria-expanded="false" data-i18n="hook.showHelp">查看解决步骤</button>
+        <button id="btn-hook-uninstall" class="danger" type="button" data-i18n="hook.uninstall">卸载</button>
       </div>
       <div id="hook-resolution" class="hook-resolution hidden" aria-live="polite">
-        <strong id="hook-resolution-title">Hook 解决步骤</strong>
+        <strong id="hook-resolution-title" data-i18n="hook.resolutionTitle">Hook 解决步骤</strong>
         <p id="hook-resolution-message"></p>
         <div id="codex-trust-actions" class="codex-trust-actions hidden">
-          <button id="btn-open-codex-trust" type="button">打开 Codex</button>
-          <button id="btn-copy-hooks-command" type="button">复制 /hooks</button>
-          <button id="btn-check-codex-trust" type="button">完成后检测</button>
+          <button id="btn-open-codex-trust" type="button" data-i18n="onboarding.openCodex">打开 Codex</button>
+          <button id="btn-copy-hooks-command" type="button" data-i18n="onboarding.copyHooks">复制 /hooks</button>
+          <button id="btn-check-codex-trust" type="button" data-i18n="hook.checkAfterTrust">完成后检测</button>
         </div>
       </div>
     </div>
   </section>
   <div id="toast" class="toast hidden"></div>
+  <script src="i18n.js"></script>
   <script src="session-order.js"></script>
   <script src="session-meta.js"></script>
   <script src="demo-data.js"></script>

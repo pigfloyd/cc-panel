@@ -1,15 +1,9 @@
 ﻿// app.js — renderer: render session cards, handle clicks and settings.
 // transitions worth interrupting the user for
 const NOTIFY_STATES = new Set(["needs_input", "done", "error"]);
-const STATE_LABELS = {
-  working: "进行中",
-  needs_input: "待输入",
-  done: "已完成",
-  error: "异常",
-  idle: "空闲",
-};
 const orderSessions = createStableSessionOrder();
 const { clientLabel, stateAgeLabel } = sessionMeta;
+const { normalizeLanguage, translate, applyDocument } = appI18n;
 const query = new URLSearchParams(window.location.search);
 const isDemoMode = query.get("demo") === "1";
 const IDLE_STACK_COLLAPSE_DELAY_MS = 3000;
@@ -31,6 +25,7 @@ const els = {
   settingSound: document.getElementById("setting-sound"),
   settingPromptSummary: document.getElementById("setting-prompt-summary"),
   settingAutoLaunch: document.getElementById("setting-auto-launch"),
+  settingLanguage: document.getElementById("setting-language"),
   settingTerminalExecutable: document.getElementById("setting-terminal-executable"),
   hookLastEvent: document.getElementById("hook-last-event"),
   hookEventService: document.getElementById("hook-event-service"),
@@ -72,6 +67,7 @@ let cfg = {
   alwaysOnTop: true,
   sound: false,
   showPromptSummary: true,
+  language: "zh-CN",
   autoLaunch: true,
   terminalCommand: "claude",
   terminalExecutable: null,
@@ -90,7 +86,20 @@ let hookHelpOpen = false;
 let hookOperationPending = false;
 let onboardingPending = false;
 let onboardingPollTimer = null;
+let onboardingStatus = null;
 const BROWSE_TERMINAL_VALUE = "__browse__";
+
+function currentLanguage() {
+  return normalizeLanguage(cfg.language);
+}
+
+function t(key, values) {
+  return translate(currentLanguage(), key, values);
+}
+
+function dateLocale() {
+  return currentLanguage() === "en" ? "en-US" : "zh-CN";
+}
 
 let _audioCtx = null;
 function getAudioCtx() {
@@ -118,12 +127,14 @@ function showToast(text) {
 }
 
 function applyConfigResult(result) {
+  const previousLanguage = currentLanguage();
   if (result && result.config) cfg = result.config;
-  refreshConfigButtons();
+  if (currentLanguage() !== previousLanguage) applyLanguage();
+  else refreshConfigButtons();
   if (result && result.ok) return true;
   showToast(result && result.reason === "config_write_failed"
-    ? "设置未保存，请检查磁盘权限或文件占用"
-    : "设置未保存，请重试");
+    ? t("settings.saveFailedDisk")
+    : t("settings.saveFailedRetry"));
   return false;
 }
 
@@ -132,14 +143,14 @@ async function saveSetting(patch) {
     return applyConfigResult(await window.ccPanel.setConfig(patch));
   } catch {
     refreshConfigButtons();
-    showToast("设置未保存，请重试");
+    showToast(t("settings.saveFailedRetry"));
     return false;
   }
 }
 
 function detailText(s) {
   if (s.state === "needs_input" && s.message) return s.message;
-  if (s.state === "working" && s.currentTool) return `工具：${s.currentTool}`;
+  if (s.state === "working" && s.currentTool) return t("session.tool", { tool: s.currentTool });
   if (cfg.showPromptSummary !== false && s.lastPrompt) return s.lastPrompt;
   return "";
 }
@@ -165,6 +176,7 @@ function scheduleOnboardingPoll(status) {
 
 function renderOnboarding(status) {
   if (!status) return;
+  onboardingStatus = status;
   const steps = status.steps || {};
   const detectedNames = onboardingClientNames(status.detected);
   setOnboardingStep(els.onboardingStepDiscover, 1, !!(steps.discover && steps.discover.ok));
@@ -172,18 +184,18 @@ function renderOnboarding(status) {
   setOnboardingStep(els.onboardingStepTrust, 3, !!(steps.trust && steps.trust.ok));
   setOnboardingStep(els.onboardingStepTest, 4, !!(steps.test && steps.test.ok));
   els.onboardingDiscoverDetail.textContent = detectedNames.length
-    ? `已发现 ${detectedNames.join("、")}`
-    : "未发现 Claude 或 Codex 命令";
+    ? t("onboarding.discovered", { clients: detectedNames.join(currentLanguage() === "en" ? ", " : "、") })
+    : t("onboarding.notFound");
   els.onboardingHooksDetail.textContent = steps.hooks && steps.hooks.ok
-    ? "已为发现的客户端安装"
-    : "Hook 未安装完整，将自动重试";
+    ? t("onboarding.hooksReady")
+    : t("onboarding.hooksRetry");
   const trustRequired = !!(steps.trust && steps.trust.required);
   els.onboardingTrustDetail.textContent = !trustRequired
-    ? "未发现 Codex，已跳过"
-    : steps.trust.ok ? "Codex Hook 已信任" : "等待在 Codex 中确认信任";
+    ? t("onboarding.codexSkipped")
+    : steps.trust.ok ? t("onboarding.codexTrusted") : t("onboarding.codexAwaiting");
   els.onboardingTestDetail.textContent = steps.test && steps.test.ok
-    ? "本地事件已成功送达"
-    : "测试事件未送达，将自动重试";
+    ? t("onboarding.testReady")
+    : t("onboarding.testRetry");
   els.onboardingTrustHelp.classList.toggle("hidden", !trustRequired || !!steps.trust.ok);
   els.onboardingFinish.classList.toggle("hidden", !status.ready);
   els.btnOnboardingClose.disabled = !status.ready || onboardingPending;
@@ -203,38 +215,25 @@ async function runOnboardingChecks(silent = false) {
   if (onboardingPending || isDemoMode) return;
   onboardingPending = true;
   els.btnOnboardingRetry.disabled = true;
-  els.btnOnboardingRetry.textContent = "检查中...";
+  els.btnOnboardingRetry.textContent = t("onboarding.checking");
   let status = null;
   try {
     status = await window.ccPanel.runOnboardingChecks();
   } catch {
-    if (!silent) showToast("自动检查失败，请重试");
+    if (!silent) showToast(t("onboarding.checkFailed"));
   } finally {
     onboardingPending = false;
     els.btnOnboardingRetry.disabled = false;
-    els.btnOnboardingRetry.textContent = "重新检查";
+    els.btnOnboardingRetry.textContent = t("onboarding.retry");
     if (status) renderOnboarding(status);
   }
 }
 
-const HOOK_STATUS_LABELS = {
-  installed: "已安装",
-  not_installed: "未安装",
-  failed: "失败",
-  pending_trust: "待信任",
-};
-
-const HOOK_MODE_LABELS = {
-  hook: "未降级",
-  hybrid: "部分降级",
-  process_scan: "进程扫描",
-};
-
 function formatHookEventTime(timestamp) {
-  if (timestamp === null || timestamp === undefined || timestamp === "") return "尚未收到";
+  if (timestamp === null || timestamp === undefined || timestamp === "") return t("hook.neverReceived");
   const date = new Date(Number(timestamp));
-  if (!Number.isFinite(date.getTime())) return "尚未收到";
-  return date.toLocaleString([], {
+  if (!Number.isFinite(date.getTime())) return t("hook.neverReceived");
+  return date.toLocaleString(dateLocale(), {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -249,33 +248,33 @@ function hookResolutionContent(status) {
   const diagnostics = status && status.diagnostics ? status.diagnostics : {};
   if (diagnostics.eventService && diagnostics.eventService.status !== "running") {
     return {
-      title: "事件服务未运行",
-      message: "重启 cc-panel；若仍未恢复，请检查本机 24333-24337 端口是否被占用。",
+      title: t("hook.eventServiceStoppedTitle"),
+      message: t("hook.eventServiceStoppedMessage"),
     };
   }
   if (clients.codex && clients.codex.status === "pending_trust") {
     return {
-      title: "Codex Hook 待信任",
-      message: "在 Codex 中运行 /hooks，信任 cc-panel Hook，然后返回这里重新检测。",
+      title: t("hook.codexTrustTitle"),
+      message: t("hook.codexTrustMessage"),
       codexTrust: true,
     };
   }
   const failedClient = Object.values(clients).find((client) => client.status === "failed");
   if (failedClient) {
     return {
-      title: "Hook 检测失败",
-      message: failedClient.error || "检查 Claude Code / Codex 配置文件权限后重新安装。",
+      title: t("hook.checkFailedTitle"),
+      message: failedClient.error || t("hook.checkFailedMessage"),
     };
   }
   if (Object.values(clients).some((client) => client.status === "not_installed")) {
     return {
-      title: "Hook 未完整安装",
-      message: "点击“重新安装”；完成后重新检测。若 Codex 提示信任，再按待信任步骤操作。",
+      title: t("hook.incompleteTitle"),
+      message: t("hook.incompleteMessage"),
     };
   }
   return {
-    title: "Hook 工作正常",
-    message: "若会话状态没有实时更新，可先重新检测，再重新安装。",
+    title: t("hook.healthyTitle"),
+    message: t("hook.healthyMessage"),
   };
 }
 
@@ -288,7 +287,7 @@ function renderHookResolution(status) {
   els.hookResolutionMessage.textContent = content.message;
   els.codexTrustActions.classList.toggle("hidden", !content.codexTrust);
   els.btnHookHelp.setAttribute("aria-expanded", String(open));
-  els.btnHookHelp.textContent = open && !forceOpen ? "收起解决步骤" : "查看解决步骤";
+  els.btnHookHelp.textContent = open && !forceOpen ? t("hook.hideHelp") : t("hook.showHelp");
 }
 
 function setHookOperationPending(pending) {
@@ -311,13 +310,15 @@ function renderHookInstallStatus(status) {
     ["codex", els.codexHookStatus],
   ]) {
     const client = clients[name] || { status: "not_installed" };
-    const rawStatus = HOOK_STATUS_LABELS[client.status] ? client.status : "not_installed";
+    const rawStatus = ["installed", "not_installed", "failed", "pending_trust"].includes(client.status)
+      ? client.status
+      : "not_installed";
     const clientStatus = name === "codex" && rawStatus === "pending_trust" ? "installed" : rawStatus;
     clientStates.push(clientStatus);
     element.dataset.status = clientStatus;
     element.textContent = name === "claude" && rawStatus === "pending_trust"
-      ? "待启动"
-      : HOOK_STATUS_LABELS[clientStatus];
+      ? t("hook.pendingStart")
+      : t(`hook.status.${clientStatus}`);
     element.title = client.error || "";
   }
 
@@ -327,24 +328,28 @@ function renderHookInstallStatus(status) {
     : codexStatus === "installed" ? "installed" : "unknown";
   els.codexTrustStatus.dataset.status = codexTrustStatus;
   els.codexTrustStatus.textContent = codexTrustStatus === "installed"
-    ? "已信任"
-    : codexTrustStatus === "pending_trust" ? "待信任" : "--";
+    ? t("hook.trusted")
+    : codexTrustStatus === "pending_trust" ? t("hook.status.pending_trust") : "--";
 
   const lastEventAt = diagnostics.lastEventAt;
   els.hookLastEvent.textContent = formatHookEventTime(lastEventAt);
-  els.hookLastEvent.title = lastEventAt ? new Date(lastEventAt).toLocaleString() : "尚未收到 Hook 事件";
+  els.hookLastEvent.title = lastEventAt
+    ? new Date(lastEventAt).toLocaleString(dateLocale())
+    : t("hook.neverReceivedTitle");
   const serviceRunning = diagnostics.eventService && diagnostics.eventService.status === "running";
   els.hookEventService.dataset.status = serviceRunning ? "installed" : "failed";
-  els.hookEventService.textContent = serviceRunning ? "运行中" : "已停止";
+  els.hookEventService.textContent = serviceRunning ? t("hook.serviceRunning") : t("hook.serviceStopped");
   els.hookEventService.title = serviceRunning && diagnostics.eventService.port
     ? `127.0.0.1:${diagnostics.eventService.port}`
     : "";
-  els.hookFallbackMode.textContent = HOOK_MODE_LABELS[diagnostics.mode] || "检测中";
+  els.hookFallbackMode.textContent = ["hook", "hybrid", "process_scan"].includes(diagnostics.mode)
+    ? t(`hook.mode.${diagnostics.mode}`)
+    : t("hook.checking");
   els.hookFallbackMode.title = diagnostics.mode === "hook"
-    ? "所有客户端使用实时 Hook 事件"
+    ? t("hook.modeHookTitle")
     : diagnostics.mode === "hybrid"
-      ? "部分客户端使用 Hook，其余使用进程扫描"
-      : "仅使用进程扫描识别会话";
+      ? t("hook.modeHybridTitle")
+      : t("hook.modeScanTitle");
 
   const hasFailure = clientStates.includes("failed");
   const needsAttention = hasFailure
@@ -354,8 +359,8 @@ function renderHookInstallStatus(status) {
   els.btnSettings.classList.toggle("has-hook-error", hasFailure);
   els.btnSettings.classList.toggle("has-hook-warning", !hasFailure && needsAttention);
   els.btnSettings.title = hasFailure
-    ? "设置（Hook 安装失败）"
-    : needsAttention ? "设置（Hook 需要处理）" : "设置";
+    ? t("hook.settingsFailed")
+    : needsAttention ? t("hook.settingsAttention") : t("toolbar.settings");
   els.btnSettings.setAttribute("aria-label", els.btnSettings.title);
   renderHookResolution(status);
 }
@@ -371,8 +376,18 @@ function refreshStateAges(now = Date.now()) {
     elapsed.textContent = stateAgeLabel({
       state: elapsed.dataset.state,
       stateSince: Number(elapsed.dataset.since),
-    }, now);
+    }, now, currentLanguage());
   }
+}
+
+function applyLanguage() {
+  cfg.language = currentLanguage();
+  applyDocument(document, cfg.language);
+  refreshConfigButtons();
+  renderTerminalHistory();
+  renderHookInstallStatus(hookInstallStatus);
+  if (onboardingStatus) renderOnboarding(onboardingStatus);
+  render();
 }
 
 function render() {
@@ -429,16 +444,16 @@ function refreshEmptyState() {
 
 async function focusSession(s) {
   if (isDemoMode) {
-    showToast(`${clientLabel(s)} Demo 会话`);
+    showToast(t("session.demo", { client: clientLabel(s) }));
     return;
   }
   if (!s.hasWindow) {
-    showToast("未找到该会话的终端窗口");
+    showToast(t("session.windowMissing"));
     return;
   }
   const result = await window.ccPanel.focusSession(s.id);
   if (!result.ok) {
-    showToast(result.reason === "gone" ? "终端窗口已关闭" : "无法聚焦窗口");
+    showToast(result.reason === "gone" ? t("session.windowClosed") : t("session.focusFailed"));
   }
 }
 
@@ -473,13 +488,14 @@ function buildCard(s) {
 
   const stateLabel = document.createElement("span");
   stateLabel.className = "state-label";
-  stateLabel.textContent = STATE_LABELS[s.state] || STATE_LABELS.idle;
+  const state = ["working", "needs_input", "done", "error", "idle"].includes(s.state) ? s.state : "idle";
+  stateLabel.textContent = t(`session.state.${state}`);
   meta.append(stateLabel);
 
   if (!s.hasWindow) {
     const tag = document.createElement("span");
     tag.className = "no-win-tag";
-    tag.textContent = "无窗口";
+    tag.textContent = t("session.noWindow");
     meta.append(tag);
   }
 
@@ -492,14 +508,16 @@ function buildCard(s) {
   client.textContent = clientLabel(s);
   const terminal = document.createElement("span");
   terminal.className = "terminal-number";
-  terminal.textContent = s.terminalPid ? `终端 #${s.terminalPid}` : "终端 --";
+  terminal.textContent = s.terminalPid
+    ? t("session.terminalNumber", { pid: s.terminalPid })
+    : t("session.terminalUnknown");
   const elapsed = document.createElement("span");
   elapsed.className = "state-age";
   elapsed.dataset.state = s.state;
   elapsed.dataset.since = String(s.stateSince);
-  elapsed.textContent = stateAgeLabel(s);
+  elapsed.textContent = stateAgeLabel(s, Date.now(), currentLanguage());
   elapsed.title = s.stateSince
-    ? `当前状态始于 ${new Date(s.stateSince).toLocaleString()}`
+    ? t("session.stateSince", { time: new Date(s.stateSince).toLocaleString(dateLocale()) })
     : "";
   context.append(client, createContextSeparator(), terminal, createContextSeparator(), elapsed);
   card.append(context);
@@ -522,7 +540,7 @@ function buildIdleStack(idleSessions, expanded) {
   const stack = document.createElement("section");
   const visibleDepth = Math.min(idleSessions.length - 1, 3);
   stack.className = "idle-stack";
-  stack.setAttribute("aria-label", `${idleSessions.length} 个空闲会话`);
+  stack.setAttribute("aria-label", t("session.idleCount", { count: idleSessions.length }));
   stack.style.setProperty("--stack-collapsed-height", `${88 + visibleDepth * 6}px`);
   stack.style.setProperty("--stack-expanded-height", `${idleSessions.length * 96 - 8}px`);
 
@@ -539,7 +557,7 @@ function buildIdleStack(idleSessions, expanded) {
   const count = document.createElement("span");
   count.className = "idle-stack-count";
   count.textContent = String(idleSessions.length);
-  count.title = `${idleSessions.length} 个空闲会话`;
+  count.title = t("session.idleCount", { count: idleSessions.length });
   cards[0].querySelector(".state-label").append(count);
   stack.append(...cards);
   updateIdleStackElement(stack, expanded);
@@ -633,6 +651,7 @@ function refreshConfigButtons() {
   els.settingSound.checked = !!cfg.sound;
   els.settingPromptSummary.checked = cfg.showPromptSummary !== false;
   els.settingAutoLaunch.checked = !!cfg.autoLaunch;
+  els.settingLanguage.value = currentLanguage();
   renderTerminalOptions();
 }
 
@@ -640,23 +659,23 @@ function renderTerminalOptions() {
   const current = cfg.terminalExecutable || "";
   const currentKey = current.toLowerCase();
   const options = [];
-  options.push(new Option("默认（Windows Terminal）", ""));
+  options.push(new Option(t("terminal.defaultOption"), ""));
 
   const matchedTerminal = terminalApps.find(
     (terminal) => terminal.executable.toLowerCase() === currentKey,
   );
   if (current && !matchedTerminal) {
     const filename = current.split(/[\\/]/).pop();
-    options.push(new Option(`自定义：${filename}`, current));
+    options.push(new Option(t("terminal.customOption", { filename }), current));
   }
   for (const terminal of terminalApps) {
     options.push(new Option(terminal.name, terminal.executable));
   }
-  options.push(new Option("浏览其他 EXE...", BROWSE_TERMINAL_VALUE));
+  options.push(new Option(t("terminal.browseOption"), BROWSE_TERMINAL_VALUE));
 
   els.settingTerminalExecutable.replaceChildren(...options);
   els.settingTerminalExecutable.value = matchedTerminal ? matchedTerminal.executable : current;
-  els.settingTerminalExecutable.title = current || "默认使用 Windows Terminal";
+  els.settingTerminalExecutable.title = current || t("terminal.defaultTitle");
 }
 
 function setTerminalHistoryOpen(open, terminalCommand = terminalHistoryCommand) {
@@ -775,20 +794,22 @@ async function openTerminal(terminalCommand, directory) {
       renderTerminalHistory();
     }
     if (result.ok && result.configSaveError) {
-      showToast("终端已启动，但最近目录未保存，请检查磁盘权限或文件占用");
+      showToast(t("terminal.launchedHistorySaveFailed"));
     }
     if (!result.ok && result.reason !== "canceled") {
       const message = result.reason === "unsupported_platform"
-        ? "当前系统不支持启动终端"
+        ? t("terminal.unsupported")
         : result.reason === "config_write_failed"
-          ? "终端启动设置未保存，请检查磁盘权限或文件占用"
+          ? t("terminal.settingSaveFailed")
         : result.reason === "invalid_directory"
-          ? "该路径已不可用"
-          : "无法打开终端";
-      showToast(message + (result.error && result.reason !== "config_write_failed" ? "：" + result.error : ""));
+          ? t("terminal.invalidDirectory")
+          : t("terminal.openFailed");
+      showToast(message + (result.error && result.reason !== "config_write_failed"
+        ? t("common.errorSuffix", { error: result.error })
+        : ""));
     }
   } catch {
-    showToast("无法打开终端");
+    showToast(t("terminal.openFailed"));
   } finally {
     setTerminalControlsDisabled(false);
   }
@@ -797,7 +818,7 @@ async function openTerminal(terminalCommand, directory) {
 async function runHookOperation(action) {
   if (hookOperationPending) return;
   if (isDemoMode) {
-    showToast("Demo 模式不会修改 Hook");
+    showToast(t("hook.demoNoChanges"));
     return;
   }
   setHookOperationPending(true);
@@ -806,20 +827,24 @@ async function runHookOperation(action) {
     renderHookInstallStatus(result);
     const operation = result && result.operation ? result.operation : { ok: false };
     if (!operation.ok) {
-      showToast(`Hook 操作失败${operation.error ? "：" + operation.error : ""}`);
+      showToast(t("hook.operationFailed", {
+        error: operation.error ? t("common.errorSuffix", { error: operation.error }) : "",
+      }));
       return;
     }
     if (action === "installHooks") {
       showToast(result.clients && result.clients.codex.status === "pending_trust"
-        ? "Hook 已安装，Codex 仍需信任"
-        : "Hook 已重新安装");
+        ? t("hook.installedNeedsTrust")
+        : t("hook.reinstalled"));
     } else if (action === "uninstallHooks") {
-      showToast(operation.changed ? "Hook 已卸载" : "未发现可卸载的 Hook");
+      showToast(operation.changed ? t("hook.uninstalled") : t("hook.noneToUninstall"));
     } else {
-      showToast("Hook 状态已更新");
+      showToast(t("hook.statusUpdated"));
     }
   } catch (error) {
-    showToast(`Hook 操作失败${error && error.message ? "：" + error.message : ""}`);
+    showToast(t("hook.operationFailed", {
+      error: error && error.message ? t("common.errorSuffix", { error: error.message }) : "",
+    }));
   } finally {
     setHookOperationPending(false);
   }
@@ -839,21 +864,21 @@ els.newTerminalControl.addEventListener("focusout", (event) => {
 async function minimizeAllTerminals() {
   if (els.btnCollapseTerminals.disabled) return;
   if (isDemoMode) {
-    showToast("Demo 模式不会操作终端窗口");
+    showToast(t("terminal.demoNoWindowChanges"));
     return;
   }
   els.btnCollapseTerminals.disabled = true;
   try {
     const result = await window.ccPanel.minimizeAllTerminals();
     if (!result.ok) {
-      showToast("无法收起终端窗口");
+      showToast(t("terminal.collapseFailed"));
     } else if (result.minimized) {
-      showToast(`已收起 ${result.minimized} 个终端窗口`);
+      showToast(t("terminal.collapsedCount", { count: result.minimized }));
     } else {
-      showToast("没有可收起的终端窗口");
+      showToast(t("terminal.noneToCollapse"));
     }
   } catch {
-    showToast("无法收起终端窗口");
+    showToast(t("terminal.collapseFailed"));
   } finally {
     els.btnCollapseTerminals.disabled = false;
   }
@@ -864,7 +889,7 @@ els.btnCollapseTerminals.addEventListener("click", minimizeAllTerminals);
 els.btnHookInspect.addEventListener("click", () => runHookOperation("inspectHooks"));
 els.btnHookInstall.addEventListener("click", () => runHookOperation("installHooks"));
 els.btnHookUninstall.addEventListener("click", () => {
-  if (window.confirm("卸载 cc-panel 的 Claude Code 和 Codex Hook？会话仍可通过进程扫描显示。")) {
+  if (window.confirm(t("hook.confirmUninstall"))) {
     void runHookOperation("uninstallHooks");
   }
 });
@@ -878,7 +903,7 @@ els.btnOpenCodexTrust.addEventListener("click", () => {
 });
 els.btnCopyHooksCommand.addEventListener("click", () => {
   if (!isDemoMode) window.ccPanel.copyHooksCommand();
-  showToast("已复制 /hooks");
+  showToast(t("hook.copied"));
 });
 els.btnCheckCodexTrust.addEventListener("click", () => runHookOperation("inspectHooks"));
 
@@ -911,9 +936,19 @@ els.settingPromptSummary.addEventListener("change", async () => {
   if (await saveSetting({ showPromptSummary: els.settingPromptSummary.checked })) render();
 });
 
+els.settingLanguage.addEventListener("change", async () => {
+  const language = normalizeLanguage(els.settingLanguage.value);
+  if (isDemoMode) {
+    cfg.language = language;
+    applyLanguage();
+    return;
+  }
+  await saveSetting({ language });
+});
+
 els.settingTerminalExecutable.addEventListener("change", async () => {
   if (isDemoMode) {
-    showToast("Demo 模式不会修改终端设置");
+    showToast(t("terminal.demoNoSettings"));
     renderTerminalOptions();
     return;
   }
@@ -926,13 +961,13 @@ els.settingTerminalExecutable.addEventListener("change", async () => {
     if (result.config) cfg = result.config;
     refreshConfigButtons();
     if (!result.ok) {
-      if (result.reason === "invalid_executable") showToast("请选择 EXE 文件");
+      if (result.reason === "invalid_executable") showToast(t("terminal.selectExe"));
       if (result.reason === "config_write_failed") {
-        showToast("终端设置未保存，请检查磁盘权限或文件占用");
+        showToast(t("terminal.settingSaveFailed"));
       }
     }
   } catch {
-    showToast("无法选择终端程序");
+    showToast(t("terminal.selectFailed"));
   } finally {
     els.settingTerminalExecutable.disabled = false;
   }
@@ -950,7 +985,7 @@ els.settingAutoLaunch.addEventListener("change", async () => {
   }
   const saved = await saveSetting({ autoLaunch: els.settingAutoLaunch.checked });
   if (saved && cfg.autoLaunchError) {
-    showToast("开机自启动设置失败：" + cfg.autoLaunchError);
+    showToast(t("autoLaunch.failed", { error: cfg.autoLaunchError }));
   }
 });
 
@@ -960,7 +995,7 @@ els.btnOnboardingOpenCodex.addEventListener("click", () => {
 });
 els.btnOnboardingCopyHooks.addEventListener("click", () => {
   if (!isDemoMode) window.ccPanel.copyHooksCommand();
-  showToast("已复制 /hooks");
+  showToast(t("hook.copied"));
 });
 els.btnOnboardingRetry.addEventListener("click", () => void runOnboardingChecks());
 els.btnOnboardingClose.addEventListener("click", async () => {
@@ -972,13 +1007,15 @@ els.btnOnboardingClose.addEventListener("click", async () => {
     const result = await window.ccPanel.completeOnboarding();
     if (!result.ok) {
       renderOnboarding(result.onboarding);
-      showToast(result.reason === "config_write_failed" ? "向导状态未保存" : "四步检查尚未全部完成");
+      showToast(result.reason === "config_write_failed"
+        ? t("onboarding.statusSaveFailed")
+        : t("onboarding.stepsIncomplete"));
       return;
     }
     cfg.onboardingCompleted = true;
     setOnboardingOpen(false);
   } catch {
-    showToast("无法关闭向导，请重试");
+    showToast(t("onboarding.closeFailed"));
   }
 });
 
@@ -1004,12 +1041,13 @@ setInterval(() => refreshStateAges(), 1000);
       alwaysOnTop: false,
       sound: false,
       showPromptSummary: true,
+      language: "zh-CN",
       autoLaunch: false,
       terminalCommand: "claude",
       terminalExecutable: null,
       terminalHistory: ["C:\\workspace\\cc-panel", "C:\\workspace\\docs-site"],
     };
-    refreshConfigButtons();
+    applyLanguage();
     renderTerminalHistory();
     await scanTerminalApps();
     renderHookInstallStatus({
@@ -1026,7 +1064,7 @@ setInterval(() => refreshStateAges(), 1000);
   const state = await window.ccPanel.getState();
   window.ccPanel.onHookInstallStatus(renderHookInstallStatus);
   cfg = state.config;
-  refreshConfigButtons();
+  applyLanguage();
   renderTerminalHistory();
   await scanTerminalApps();
   renderHookInstallStatus(state.hookInstallStatus);
@@ -1036,7 +1074,9 @@ setInterval(() => refreshStateAges(), 1000);
     void runOnboardingChecks();
   }
   if (state.autoLaunchStatus && !state.autoLaunchStatus.ok) {
-    showToast("开机自启动设置失败：" + (state.autoLaunchStatus.error || "未知错误"));
+    showToast(t("autoLaunch.failed", {
+      error: state.autoLaunchStatus.error || t("common.unknownError"),
+    }));
   }
   applySnapshot(state.sessions);
 })();

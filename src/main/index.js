@@ -298,6 +298,7 @@ function configSnapshot(extra = {}) {
     alwaysOnTop: !!cfg.alwaysOnTop,
     sound: !!cfg.sound,
     showPromptSummary: cfg.showPromptSummary !== false,
+    language: cfg.language === "en" ? "en" : "zh-CN",
     autoLaunch: !!cfg.autoLaunch,
     hooksEnabled: cfg.hooksEnabled !== false,
     onboardingCompleted: cfg.onboardingCompleted === true,
@@ -577,6 +578,7 @@ function registerIpc() {
         if (typeof patch.alwaysOnTop === "boolean") next.alwaysOnTop = patch.alwaysOnTop;
         if (typeof patch.sound === "boolean") next.sound = patch.sound;
         if (typeof patch.showPromptSummary === "boolean") next.showPromptSummary = patch.showPromptSummary;
+        if (patch.language === "zh-CN" || patch.language === "en") next.language = patch.language;
         if (typeof patch.terminalCommand === "string" && TERMINAL_COMMANDS.has(patch.terminalCommand)) {
           next.terminalCommand = patch.terminalCommand;
         }

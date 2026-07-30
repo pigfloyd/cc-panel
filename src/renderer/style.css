@@ -936,6 +936,10 @@ input:focus-visible {
   opacity: 0.6;
 }
 
+.setting-language-select {
+  width: 112px;
+}
+
 .hook-status-group {
   margin-top: 5px;
   padding-top: 5px;
