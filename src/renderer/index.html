@@ -47,15 +47,46 @@
         <option value="">正在扫描...</option>
       </select>
     </div>
-    <div class="hook-status-group" aria-label="Hook 安装状态">
-      <div class="setting-section-label">Hook 状态</div>
+    <div class="hook-status-group" aria-label="Hook 诊断">
+      <div class="setting-section-label">Hook 诊断</div>
       <div class="hook-status-row">
-        <span>Claude Code</span>
+        <span>最近事件</span>
+        <span id="hook-last-event" class="hook-status-value">尚未收到</span>
+      </div>
+      <div class="hook-status-row">
+        <span>事件服务</span>
+        <span id="hook-event-service" class="hook-status" data-status="unknown">检测中</span>
+      </div>
+      <div class="hook-status-row">
+        <span>Claude Hook</span>
         <span id="claude-hook-status" class="hook-status" data-status="not_installed">未安装</span>
       </div>
       <div class="hook-status-row">
-        <span>Codex CLI</span>
+        <span>Codex Hook</span>
         <span id="codex-hook-status" class="hook-status" data-status="not_installed">未安装</span>
+      </div>
+      <div class="hook-status-row">
+        <span>Codex 信任</span>
+        <span id="codex-trust-status" class="hook-status" data-status="unknown">--</span>
+      </div>
+      <div class="hook-status-row">
+        <span>降级模式</span>
+        <span id="hook-fallback-mode" class="hook-status-value">检测中</span>
+      </div>
+      <div class="hook-actions" aria-label="Hook 操作">
+        <button id="btn-hook-inspect" type="button">重新检测</button>
+        <button id="btn-hook-install" type="button">重新安装</button>
+        <button id="btn-hook-help" type="button" aria-expanded="false">查看解决步骤</button>
+        <button id="btn-hook-uninstall" class="danger" type="button">卸载</button>
+      </div>
+      <div id="hook-resolution" class="hook-resolution hidden" aria-live="polite">
+        <strong id="hook-resolution-title">Hook 解决步骤</strong>
+        <p id="hook-resolution-message"></p>
+        <div id="codex-trust-actions" class="codex-trust-actions hidden">
+          <button id="btn-open-codex-trust" type="button">打开 Codex</button>
+          <button id="btn-copy-hooks-command" type="button">复制 /hooks</button>
+          <button id="btn-check-codex-trust" type="button">完成后检测</button>
+        </div>
       </div>
     </div>
   </section>

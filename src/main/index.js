@@ -6,6 +6,7 @@ const path = require("path");
 const config = require("./config");
 const server = require("./server");
 const installer = require("./hook-installer");
+const { buildHookDiagnostics } = require("./hook-diagnostics");
 const { SessionStore } = require("./sessions");
 const { captureRunningSessions } = require("./startup-capture");
 const {
@@ -53,6 +54,9 @@ let autoLaunchStatus = null;
 let sessionCaptureTimer = null;
 let sessionCapturePromise = null;
 let hookHealthTimer = null;
+let eventServiceStatus = { status: "stopped" };
+let lastHookEventAt = null;
+let hookAutoRepairEnabled = cfg.hooksEnabled !== false;
 
 const TERMINAL_COMMANDS = new Set(["codex", "claude"]);
 const MINIMIZE_ALL_SHORTCUT = "CommandOrControl+Shift+Z";
@@ -102,14 +106,19 @@ async function main() {
     if (win && !win.isDestroyed()) win.webContents.send("sessions", snapshot);
   });
   try {
-    await server.start((body) => store.handleEvent(body));
+    const eventService = await server.start((body) => {
+      lastHookEventAt = Date.now();
+      store.handleEvent(body);
+      publishHookInstallStatus();
+    });
+    eventServiceStatus = { status: "running", port: eventService.port };
   } catch (err) {
     dialog.showErrorBox("cc-panel", String(err.message || err));
     app.quit();
     return;
   }
 
-  hookInstallStatus = installHooks();
+  hookInstallStatus = hookAutoRepairEnabled ? installHooks() : inspectHooks();
   autoLaunchStatus = setAutoLaunch(cfg.autoLaunch);
   createWindow();
   registerIpc();
@@ -178,7 +187,38 @@ function installHooks() {
   }
 }
 
+function inspectHooks() {
+  const clients = installer.inspect();
+  const failures = Object.entries(clients)
+    .filter(([, client]) => client.status === "failed")
+    .map(([name, client]) => `${name === "claude" ? "Claude" : "Codex"}: ${client.error || "未知错误"}`);
+  return {
+    ok: failures.length === 0,
+    installed: Object.values(clients).every((client) => client.status === "installed"),
+    claudeInstalled: clients.claude.status === "installed",
+    codexInstalled: clients.codex.status === "installed",
+    clients,
+    error: failures.join("; ") || undefined,
+  };
+}
+
+function hookStatusSnapshot(extra = {}) {
+  const status = hookInstallStatus || inspectHooks();
+  return {
+    ...status,
+    diagnostics: buildHookDiagnostics(status, eventServiceStatus, lastHookEventAt),
+    ...extra,
+  };
+}
+
+function publishHookInstallStatus(extra = {}) {
+  const snapshot = hookStatusSnapshot(extra);
+  if (win && !win.isDestroyed()) win.webContents.send("hook-install-status", snapshot);
+  return snapshot;
+}
+
 function repairMissingHooks() {
+  if (!hookAutoRepairEnabled) return;
   const inspected = installer.inspect();
   const needsRepair = Object.values(inspected).some((client) => (
     client.status === "not_installed" || client.status === "failed"
@@ -199,7 +239,7 @@ function repairMissingHooks() {
   if (Object.values(hookInstallStatus.clients).some((client) => client.status === "failed")) {
     console.error("[cc-panel] hook repair failed:", hookInstallStatus.error);
   }
-  if (win && !win.isDestroyed()) win.webContents.send("hook-install-status", hookInstallStatus);
+  publishHookInstallStatus();
 }
 
 function loginItemOptions() {
@@ -226,6 +266,7 @@ function configSnapshot(extra = {}) {
     alwaysOnTop: !!cfg.alwaysOnTop,
     sound: !!cfg.sound,
     autoLaunch: !!cfg.autoLaunch,
+    hooksEnabled: cfg.hooksEnabled !== false,
     terminalCommand: normalizeTerminalCommand(cfg.terminalCommand),
     terminalExecutable: normalizeTerminalExecutable(cfg.terminalExecutable),
     terminalHistory: normalizeTerminalHistory(cfg.terminalHistory),
@@ -304,7 +345,7 @@ function registerIpc() {
     hooksInstalled: hookInstallStatus ? hookInstallStatus.installed : installer.isInstalled(),
     claudeInstalled: installer.isClaudeInstalled(),
     codexInstalled: installer.isCodexInstalled(),
-    hookInstallStatus,
+    hookInstallStatus: hookStatusSnapshot(),
     autoLaunchStatus,
     config: configSnapshot(),
   }));
@@ -438,16 +479,43 @@ function registerIpc() {
   });
 
   ipcMain.handle("install-hooks", () => {
+    hookAutoRepairEnabled = true;
+    const saved = persistConfig((next) => { next.hooksEnabled = true; });
     hookInstallStatus = installHooks();
-    return hookInstallStatus;
+    return publishHookInstallStatus({
+      operation: {
+        ok: hookInstallStatus.ok && saved.ok,
+        action: "install",
+        ...(!saved.ok ? { error: saved.error } : {}),
+      },
+    });
+  });
+
+  ipcMain.handle("inspect-hooks", () => {
+    hookInstallStatus = inspectHooks();
+    return publishHookInstallStatus({ operation: { ok: hookInstallStatus.ok, action: "inspect" } });
   });
 
   ipcMain.handle("uninstall-hooks", () => {
     try {
-      installer.uninstall();
-      return { ok: true, installed: installer.isInstalled() };
+      const result = installer.uninstall();
+      hookAutoRepairEnabled = false;
+      const saved = persistConfig((next) => { next.hooksEnabled = false; });
+      hookInstallStatus = inspectHooks();
+      const uninstallError = result.errors.length ? result.errors.join("; ") : null;
+      return publishHookInstallStatus({
+        operation: {
+          ok: saved.ok && !uninstallError,
+          action: "uninstall",
+          changed: result.changed,
+          ...(!saved.ok || uninstallError ? { error: saved.error || uninstallError } : {}),
+        },
+      });
     } catch (err) {
-      return { ok: false, error: String(err.message || err) };
+      hookInstallStatus = inspectHooks();
+      return publishHookInstallStatus({
+        operation: { ok: false, action: "uninstall", error: String(err.message || err) },
+      });
     }
   });
 

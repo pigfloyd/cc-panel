@@ -31,8 +31,23 @@ const els = {
   settingSound: document.getElementById("setting-sound"),
   settingAutoLaunch: document.getElementById("setting-auto-launch"),
   settingTerminalExecutable: document.getElementById("setting-terminal-executable"),
+  hookLastEvent: document.getElementById("hook-last-event"),
+  hookEventService: document.getElementById("hook-event-service"),
   claudeHookStatus: document.getElementById("claude-hook-status"),
   codexHookStatus: document.getElementById("codex-hook-status"),
+  codexTrustStatus: document.getElementById("codex-trust-status"),
+  hookFallbackMode: document.getElementById("hook-fallback-mode"),
+  btnHookInspect: document.getElementById("btn-hook-inspect"),
+  btnHookInstall: document.getElementById("btn-hook-install"),
+  btnHookHelp: document.getElementById("btn-hook-help"),
+  btnHookUninstall: document.getElementById("btn-hook-uninstall"),
+  hookResolution: document.getElementById("hook-resolution"),
+  hookResolutionTitle: document.getElementById("hook-resolution-title"),
+  hookResolutionMessage: document.getElementById("hook-resolution-message"),
+  codexTrustActions: document.getElementById("codex-trust-actions"),
+  btnOpenCodexTrust: document.getElementById("btn-open-codex-trust"),
+  btnCopyHooksCommand: document.getElementById("btn-copy-hooks-command"),
+  btnCheckCodexTrust: document.getElementById("btn-check-codex-trust"),
 };
 
 let sessions = [];
@@ -53,6 +68,9 @@ let terminalHistoryCloseTimer = null;
 let idleStackCollapseTimer = null;
 let idleStackExpanded = false;
 let idleStackInitialized = false;
+let hookInstallStatus = null;
+let hookHelpOpen = false;
+let hookOperationPending = false;
 const BROWSE_TERMINAL_VALUE = "__browse__";
 
 let _audioCtx = null;
@@ -114,28 +132,140 @@ const HOOK_STATUS_LABELS = {
   pending_trust: "待信任",
 };
 
-function renderHookInstallStatus(status) {
+const HOOK_MODE_LABELS = {
+  hook: "未降级",
+  hybrid: "部分降级",
+  process_scan: "进程扫描",
+};
+
+function formatHookEventTime(timestamp) {
+  if (timestamp === null || timestamp === undefined || timestamp === "") return "尚未收到";
+  const date = new Date(Number(timestamp));
+  if (!Number.isFinite(date.getTime())) return "尚未收到";
+  return date.toLocaleString([], {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+function hookResolutionContent(status) {
   const clients = status && status.clients ? status.clients : {};
+  const diagnostics = status && status.diagnostics ? status.diagnostics : {};
+  if (diagnostics.eventService && diagnostics.eventService.status !== "running") {
+    return {
+      title: "事件服务未运行",
+      message: "重启 cc-panel；若仍未恢复，请检查本机 24333-24337 端口是否被占用。",
+    };
+  }
+  if (clients.codex && clients.codex.status === "pending_trust") {
+    return {
+      title: "Codex Hook 待信任",
+      message: "在 Codex 中运行 /hooks，信任 cc-panel Hook，然后返回这里重新检测。",
+      codexTrust: true,
+    };
+  }
+  const failedClient = Object.values(clients).find((client) => client.status === "failed");
+  if (failedClient) {
+    return {
+      title: "Hook 检测失败",
+      message: failedClient.error || "检查 Claude Code / Codex 配置文件权限后重新安装。",
+    };
+  }
+  if (Object.values(clients).some((client) => client.status === "not_installed")) {
+    return {
+      title: "Hook 未完整安装",
+      message: "点击“重新安装”；完成后重新检测。若 Codex 提示信任，再按待信任步骤操作。",
+    };
+  }
+  return {
+    title: "Hook 工作正常",
+    message: "若会话状态没有实时更新，可先重新检测，再重新安装。",
+  };
+}
+
+function renderHookResolution(status) {
+  const content = hookResolutionContent(status);
+  const forceOpen = !!content.codexTrust;
+  const open = forceOpen || hookHelpOpen;
+  els.hookResolution.classList.toggle("hidden", !open);
+  els.hookResolutionTitle.textContent = content.title;
+  els.hookResolutionMessage.textContent = content.message;
+  els.codexTrustActions.classList.toggle("hidden", !content.codexTrust);
+  els.btnHookHelp.setAttribute("aria-expanded", String(open));
+  els.btnHookHelp.textContent = open && !forceOpen ? "收起解决步骤" : "查看解决步骤";
+}
+
+function setHookOperationPending(pending) {
+  hookOperationPending = pending;
+  for (const button of [
+    els.btnHookInspect,
+    els.btnHookInstall,
+    els.btnHookUninstall,
+    els.btnCheckCodexTrust,
+  ]) button.disabled = pending;
+}
+
+function renderHookInstallStatus(status) {
+  hookInstallStatus = status || {};
+  const clients = status && status.clients ? status.clients : {};
+  const diagnostics = status && status.diagnostics ? status.diagnostics : {};
   const clientStates = [];
   for (const [name, element] of [
     ["claude", els.claudeHookStatus],
     ["codex", els.codexHookStatus],
   ]) {
     const client = clients[name] || { status: "not_installed" };
-    const clientStatus = HOOK_STATUS_LABELS[client.status] ? client.status : "not_installed";
+    const rawStatus = HOOK_STATUS_LABELS[client.status] ? client.status : "not_installed";
+    const clientStatus = name === "codex" && rawStatus === "pending_trust" ? "installed" : rawStatus;
     clientStates.push(clientStatus);
     element.dataset.status = clientStatus;
-    element.textContent = HOOK_STATUS_LABELS[clientStatus];
-    element.title = client.error || (clientStatus === "pending_trust"
-      ? (name === "codex" ? "请在 Codex 中使用 /hooks 信任当前 Hook" : "信任并启动 Claude Code 后将自动安装")
-      : "");
+    element.textContent = name === "claude" && rawStatus === "pending_trust"
+      ? "待启动"
+      : HOOK_STATUS_LABELS[clientStatus];
+    element.title = client.error || "";
   }
+
+  const codexStatus = clients.codex && clients.codex.status;
+  const codexTrustStatus = codexStatus === "pending_trust"
+    ? "pending_trust"
+    : codexStatus === "installed" ? "installed" : "unknown";
+  els.codexTrustStatus.dataset.status = codexTrustStatus;
+  els.codexTrustStatus.textContent = codexTrustStatus === "installed"
+    ? "已信任"
+    : codexTrustStatus === "pending_trust" ? "待信任" : "--";
+
+  const lastEventAt = diagnostics.lastEventAt;
+  els.hookLastEvent.textContent = formatHookEventTime(lastEventAt);
+  els.hookLastEvent.title = lastEventAt ? new Date(lastEventAt).toLocaleString() : "尚未收到 Hook 事件";
+  const serviceRunning = diagnostics.eventService && diagnostics.eventService.status === "running";
+  els.hookEventService.dataset.status = serviceRunning ? "installed" : "failed";
+  els.hookEventService.textContent = serviceRunning ? "运行中" : "已停止";
+  els.hookEventService.title = serviceRunning && diagnostics.eventService.port
+    ? `127.0.0.1:${diagnostics.eventService.port}`
+    : "";
+  els.hookFallbackMode.textContent = HOOK_MODE_LABELS[diagnostics.mode] || "检测中";
+  els.hookFallbackMode.title = diagnostics.mode === "hook"
+    ? "所有客户端使用实时 Hook 事件"
+    : diagnostics.mode === "hybrid"
+      ? "部分客户端使用 Hook，其余使用进程扫描"
+      : "仅使用进程扫描识别会话";
+
   const hasFailure = clientStates.includes("failed");
-  const needsAttention = hasFailure || clientStates.includes("not_installed");
+  const needsAttention = hasFailure
+    || clientStates.includes("not_installed")
+    || codexStatus === "pending_trust"
+    || !serviceRunning;
   els.btnSettings.classList.toggle("has-hook-error", hasFailure);
   els.btnSettings.classList.toggle("has-hook-warning", !hasFailure && needsAttention);
-  els.btnSettings.title = hasFailure ? "设置（Hook 安装失败）" : "设置";
+  els.btnSettings.title = hasFailure
+    ? "设置（Hook 安装失败）"
+    : needsAttention ? "设置（Hook 需要处理）" : "设置";
   els.btnSettings.setAttribute("aria-label", els.btnSettings.title);
+  renderHookResolution(status);
 }
 
 function directoryName(s) {
@@ -571,6 +701,37 @@ async function openTerminal(terminalCommand, directory) {
   }
 }
 
+async function runHookOperation(action) {
+  if (hookOperationPending) return;
+  if (isDemoMode) {
+    showToast("Demo 模式不会修改 Hook");
+    return;
+  }
+  setHookOperationPending(true);
+  try {
+    const result = await window.ccPanel[action]();
+    renderHookInstallStatus(result);
+    const operation = result && result.operation ? result.operation : { ok: false };
+    if (!operation.ok) {
+      showToast(`Hook 操作失败${operation.error ? "：" + operation.error : ""}`);
+      return;
+    }
+    if (action === "installHooks") {
+      showToast(result.clients && result.clients.codex.status === "pending_trust"
+        ? "Hook 已安装，Codex 仍需信任"
+        : "Hook 已重新安装");
+    } else if (action === "uninstallHooks") {
+      showToast(operation.changed ? "Hook 已卸载" : "未发现可卸载的 Hook");
+    } else {
+      showToast("Hook 状态已更新");
+    }
+  } catch (error) {
+    showToast(`Hook 操作失败${error && error.message ? "：" + error.message : ""}`);
+  } finally {
+    setHookOperationPending(false);
+  }
+}
+
 els.btnClaudeTerminal.addEventListener("click", () => openTerminal("claude"));
 els.btnCodexTerminal.addEventListener("click", () => openTerminal("codex"));
 els.btnClaudeTerminal.addEventListener("mouseenter", () => showTerminalHistory("claude"));
@@ -606,6 +767,27 @@ async function minimizeAllTerminals() {
 }
 
 els.btnCollapseTerminals.addEventListener("click", minimizeAllTerminals);
+
+els.btnHookInspect.addEventListener("click", () => runHookOperation("inspectHooks"));
+els.btnHookInstall.addEventListener("click", () => runHookOperation("installHooks"));
+els.btnHookUninstall.addEventListener("click", () => {
+  if (window.confirm("卸载 cc-panel 的 Claude Code 和 Codex Hook？会话仍可通过进程扫描显示。")) {
+    void runHookOperation("uninstallHooks");
+  }
+});
+els.btnHookHelp.addEventListener("click", () => {
+  hookHelpOpen = !hookHelpOpen;
+  renderHookResolution(hookInstallStatus);
+});
+els.btnOpenCodexTrust.addEventListener("click", () => {
+  const directory = Array.isArray(cfg.terminalHistory) ? cfg.terminalHistory[0] : undefined;
+  void openTerminal("codex", directory);
+});
+els.btnCopyHooksCommand.addEventListener("click", () => {
+  if (!isDemoMode) window.ccPanel.copyHooksCommand();
+  showToast("已复制 /hooks");
+});
+els.btnCheckCodexTrust.addEventListener("click", () => runHookOperation("inspectHooks"));
 
 
 els.settingAlwaysOnTop.addEventListener("change", async () => {
@@ -698,6 +880,14 @@ setInterval(() => refreshStateAges(), 1000);
     refreshConfigButtons();
     renderTerminalHistory();
     await scanTerminalApps();
+    renderHookInstallStatus({
+      clients: { claude: { status: "installed" }, codex: { status: "pending_trust" } },
+      diagnostics: {
+        lastEventAt: Date.now() - 24000,
+        eventService: { status: "running", port: 24333 },
+        mode: "hybrid",
+      },
+    });
     applySnapshot(demoData.createDemoSessions());
     return;
   }

@@ -12,6 +12,7 @@ const DEFAULTS = {
   alwaysOnTop: true,
   sound: false,
   autoLaunch: true,
+  hooksEnabled: true,
   terminalDir: null,
   terminalHistory: [],
   terminalCommand: "claude",
