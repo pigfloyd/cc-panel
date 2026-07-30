@@ -21,14 +21,16 @@ function detectClients(check = commandAvailable) {
 }
 
 function buildOnboardingStatus({ detected, hookStatus, testEvent, completed = false }) {
+  detected = detected || { claude: false, codex: false };
   const clients = hookStatus && hookStatus.clients ? hookStatus.clients : {};
   const found = Object.values(detected || {}).some(Boolean);
   const detectedClients = Object.entries(detected || {})
     .filter(([, available]) => available)
     .map(([name]) => name);
-  const hooksReady = found && detectedClients.every((name) => (
-    clients[name] && clients[name].status !== "not_installed" && clients[name].status !== "failed"
-  ));
+  const hooksReady = found && detectedClients.every((name) => {
+    const status = clients[name] && clients[name].status;
+    return status === "installed" || (name === "codex" && status === "pending_trust");
+  });
   const trustReady = !detected.codex || (clients.codex && clients.codex.status === "installed");
   const testReady = !!(testEvent && testEvent.ok);
   const ready = found && hooksReady && trustReady && testReady;

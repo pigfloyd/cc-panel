@@ -50,3 +50,14 @@ test("does not accept hook installation when no supported client was found", () 
   assert.equal(status.steps.hooks.ok, false);
   assert.equal(status.ready, false);
 });
+
+test("does not treat Claude's pre-initialization state as an installed hook", () => {
+  const status = buildOnboardingStatus({
+    detected: { claude: true, codex: false },
+    hookStatus: { clients: { claude: { status: "pending_trust" } } },
+    testEvent: { ok: true },
+  });
+
+  assert.equal(status.steps.hooks.ok, false);
+  assert.equal(status.ready, false);
+});

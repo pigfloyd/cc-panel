@@ -402,8 +402,8 @@ function installCodex() {
   return { changed, skipped: false };
 }
 
-function installClaude() {
-  if (!fs.existsSync(CLAUDE_SETTINGS_PATH)) return { changed: false, skipped: true };
+function installClaude(force = false) {
+  if (!force && !fs.existsSync(CLAUDE_SETTINGS_PATH)) return { changed: false, skipped: true };
   const settings = readJsonFile(CLAUDE_SETTINGS_PATH, {});
   const changed = installEntries(settings, CLAUDE_EVENTS, claudeEntry);
   if (changed) writeJsonFile(CLAUDE_SETTINGS_PATH, CLAUDE_BACKUP_PATH, settings);
@@ -434,9 +434,14 @@ function summarizeInstallResults(claude, codex) {
   };
 }
 
-function install() {
-  const claudeStep = safeStep(installClaude);
-  const codexStep = safeStep(installCodex);
+function install(targets = null) {
+  const selected = targets && typeof targets === "object" ? targets : null;
+  const claudeStep = selected && !selected.claude
+    ? { changed: false, skipped: true }
+    : safeStep(() => installClaude(!!(selected && selected.claude)));
+  const codexStep = selected && !selected.codex
+    ? { changed: false, skipped: true }
+    : safeStep(installCodex);
   const status = inspect();
   return summarizeInstallResults(
     withInstallStatus(claudeStep, status.claude),

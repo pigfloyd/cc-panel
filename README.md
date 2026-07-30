@@ -1,5 +1,7 @@
 # cc-panel
 
+[English](./README_EN.md)
+
 一个面向 Windows 的 Claude Code / Codex CLI 多会话状态面板。它把分散在不同终端里的 AI 编程会话集中展示，让你快速判断哪个会话正在运行、等待输入、已经完成或出现异常，并可点击卡片直接切回对应终端窗口。
 
 ![cc-panel 软件截图](./intro.png)

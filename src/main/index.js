@@ -167,9 +167,9 @@ function refreshRunningSessions() {
   return sessionCapturePromise;
 }
 
-function installHooks() {
+function installHooks(targets = null) {
   try {
-    const details = installer.install();
+    const details = installer.install(targets);
     const clients = {
       claude: details.claude,
       codex: details.codex,
@@ -232,6 +232,9 @@ function onboardingStatusSnapshot() {
 async function runOnboardingChecks(install = false) {
   detectedClients = detectClients();
   hookInstallStatus = install ? installHooks() : inspectHooks();
+  if (install && detectedClients.claude && hookInstallStatus.clients.claude.status === "pending_trust") {
+    hookInstallStatus = installHooks({ claude: true, codex: false });
+  }
   if (eventServiceStatus.status === "running" && eventServiceStatus.port) {
     onboardingTestEvent = await server.sendTestEvent(eventServiceStatus.port);
   } else {
@@ -529,6 +532,10 @@ function registerIpc() {
   });
 
   ipcMain.handle("run-onboarding-checks", async () => {
+    if (!hookAutoRepairEnabled) {
+      hookAutoRepairEnabled = true;
+      persistConfig((next) => { next.hooksEnabled = true; });
+    }
     const status = await runOnboardingChecks(true);
     publishHookInstallStatus();
     return status;

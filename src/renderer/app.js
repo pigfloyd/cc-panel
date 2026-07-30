@@ -151,10 +151,9 @@ function onboardingClientNames(detected) {
   return names;
 }
 
-function setOnboardingStep(element, ok, pending = false) {
+function setOnboardingStep(element, number, ok, pending = false) {
   element.dataset.state = pending ? "pending" : ok ? "done" : "attention";
-  element.querySelector(".onboarding-step-marker").textContent = ok ? "\u2713" : element.id.slice(-1) === "r" ? "1" :
-    element.id.endsWith("hooks") ? "2" : element.id.endsWith("trust") ? "3" : "4";
+  element.querySelector(".onboarding-step-marker").textContent = ok ? "\u2713" : String(number);
 }
 
 function scheduleOnboardingPoll(status) {
@@ -168,10 +167,10 @@ function renderOnboarding(status) {
   if (!status) return;
   const steps = status.steps || {};
   const detectedNames = onboardingClientNames(status.detected);
-  setOnboardingStep(els.onboardingStepDiscover, !!(steps.discover && steps.discover.ok));
-  setOnboardingStep(els.onboardingStepHooks, !!(steps.hooks && steps.hooks.ok));
-  setOnboardingStep(els.onboardingStepTrust, !!(steps.trust && steps.trust.ok));
-  setOnboardingStep(els.onboardingStepTest, !!(steps.test && steps.test.ok));
+  setOnboardingStep(els.onboardingStepDiscover, 1, !!(steps.discover && steps.discover.ok));
+  setOnboardingStep(els.onboardingStepHooks, 2, !!(steps.hooks && steps.hooks.ok));
+  setOnboardingStep(els.onboardingStepTrust, 3, !!(steps.trust && steps.trust.ok));
+  setOnboardingStep(els.onboardingStepTest, 4, !!(steps.test && steps.test.ok));
   els.onboardingDiscoverDetail.textContent = detectedNames.length
     ? `已发现 ${detectedNames.join("、")}`
     : "未发现 Claude 或 Codex 命令";
@@ -205,14 +204,16 @@ async function runOnboardingChecks(silent = false) {
   onboardingPending = true;
   els.btnOnboardingRetry.disabled = true;
   els.btnOnboardingRetry.textContent = "检查中...";
+  let status = null;
   try {
-    renderOnboarding(await window.ccPanel.runOnboardingChecks());
+    status = await window.ccPanel.runOnboardingChecks();
   } catch {
     if (!silent) showToast("自动检查失败，请重试");
   } finally {
     onboardingPending = false;
     els.btnOnboardingRetry.disabled = false;
     els.btnOnboardingRetry.textContent = "重新检查";
+    if (status) renderOnboarding(status);
   }
 }
 
