@@ -7,6 +7,7 @@ const config = require("./config");
 const server = require("./server");
 const installer = require("./hook-installer");
 const { buildHookDiagnostics } = require("./hook-diagnostics");
+const { detectClients, buildOnboardingStatus } = require("./onboarding");
 const { SessionStore } = require("./sessions");
 const { captureRunningSessions } = require("./startup-capture");
 const {
@@ -38,7 +39,9 @@ let cfg = demoMode
   ? {
       alwaysOnTop: false,
       sound: false,
+      showPromptSummary: true,
       autoLaunch: false,
+      onboardingCompleted: true,
       terminalHistory: [],
       terminalCommand: "claude",
       terminalExecutable: null,
@@ -57,6 +60,8 @@ let hookHealthTimer = null;
 let eventServiceStatus = { status: "stopped" };
 let lastHookEventAt = null;
 let hookAutoRepairEnabled = cfg.hooksEnabled !== false;
+let detectedClients = { claude: false, codex: false };
+let onboardingTestEvent = { ok: false };
 
 const TERMINAL_COMMANDS = new Set(["codex", "claude"]);
 const MINIMIZE_ALL_SHORTCUT = "CommandOrControl+Shift+Z";
@@ -108,6 +113,10 @@ async function main() {
   try {
     const eventService = await server.start((body) => {
       lastHookEventAt = Date.now();
+      if (body && body.__ccPanelTest === true) {
+        publishHookInstallStatus();
+        return;
+      }
       store.handleEvent(body);
       publishHookInstallStatus();
     });
@@ -118,7 +127,7 @@ async function main() {
     return;
   }
 
-  hookInstallStatus = hookAutoRepairEnabled ? installHooks() : inspectHooks();
+  await runOnboardingChecks(hookAutoRepairEnabled);
   autoLaunchStatus = setAutoLaunch(cfg.autoLaunch);
   createWindow();
   registerIpc();
@@ -211,6 +220,26 @@ function hookStatusSnapshot(extra = {}) {
   };
 }
 
+function onboardingStatusSnapshot() {
+  return buildOnboardingStatus({
+    detected: detectedClients,
+    hookStatus: hookStatusSnapshot(),
+    testEvent: onboardingTestEvent,
+    completed: cfg.onboardingCompleted === true,
+  });
+}
+
+async function runOnboardingChecks(install = false) {
+  detectedClients = detectClients();
+  hookInstallStatus = install ? installHooks() : inspectHooks();
+  if (eventServiceStatus.status === "running" && eventServiceStatus.port) {
+    onboardingTestEvent = await server.sendTestEvent(eventServiceStatus.port);
+  } else {
+    onboardingTestEvent = { ok: false, error: "event service is not running", testedAt: Date.now() };
+  }
+  return onboardingStatusSnapshot();
+}
+
 function publishHookInstallStatus(extra = {}) {
   const snapshot = hookStatusSnapshot(extra);
   if (win && !win.isDestroyed()) win.webContents.send("hook-install-status", snapshot);
@@ -265,8 +294,10 @@ function configSnapshot(extra = {}) {
   return {
     alwaysOnTop: !!cfg.alwaysOnTop,
     sound: !!cfg.sound,
+    showPromptSummary: cfg.showPromptSummary !== false,
     autoLaunch: !!cfg.autoLaunch,
     hooksEnabled: cfg.hooksEnabled !== false,
+    onboardingCompleted: cfg.onboardingCompleted === true,
     terminalCommand: normalizeTerminalCommand(cfg.terminalCommand),
     terminalExecutable: normalizeTerminalExecutable(cfg.terminalExecutable),
     terminalHistory: normalizeTerminalHistory(cfg.terminalHistory),
@@ -346,6 +377,7 @@ function registerIpc() {
     claudeInstalled: installer.isClaudeInstalled(),
     codexInstalled: installer.isCodexInstalled(),
     hookInstallStatus: hookStatusSnapshot(),
+    onboarding: onboardingStatusSnapshot(),
     autoLaunchStatus,
     config: configSnapshot(),
   }));
@@ -496,6 +528,19 @@ function registerIpc() {
     return publishHookInstallStatus({ operation: { ok: hookInstallStatus.ok, action: "inspect" } });
   });
 
+  ipcMain.handle("run-onboarding-checks", async () => {
+    const status = await runOnboardingChecks(true);
+    publishHookInstallStatus();
+    return status;
+  });
+
+  ipcMain.handle("complete-onboarding", () => {
+    const status = onboardingStatusSnapshot();
+    if (!status.ready) return { ok: false, reason: "checks_incomplete", onboarding: status };
+    const saved = persistConfig((next) => { next.onboardingCompleted = true; });
+    return { ok: saved.ok, ...(!saved.ok ? { reason: saved.reason } : {}), onboarding: onboardingStatusSnapshot() };
+  });
+
   ipcMain.handle("uninstall-hooks", () => {
     try {
       const result = installer.uninstall();
@@ -524,6 +569,7 @@ function registerIpc() {
       const saved = persistConfig((next) => {
         if (typeof patch.alwaysOnTop === "boolean") next.alwaysOnTop = patch.alwaysOnTop;
         if (typeof patch.sound === "boolean") next.sound = patch.sound;
+        if (typeof patch.showPromptSummary === "boolean") next.showPromptSummary = patch.showPromptSummary;
         if (typeof patch.terminalCommand === "string" && TERMINAL_COMMANDS.has(patch.terminalCommand)) {
           next.terminalCommand = patch.terminalCommand;
         }

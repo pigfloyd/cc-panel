@@ -29,6 +29,7 @@ const els = {
   settingsPanel: document.getElementById("settings-panel"),
   settingAlwaysOnTop: document.getElementById("setting-always-on-top"),
   settingSound: document.getElementById("setting-sound"),
+  settingPromptSummary: document.getElementById("setting-prompt-summary"),
   settingAutoLaunch: document.getElementById("setting-auto-launch"),
   settingTerminalExecutable: document.getElementById("setting-terminal-executable"),
   hookLastEvent: document.getElementById("hook-last-event"),
@@ -48,6 +49,21 @@ const els = {
   btnOpenCodexTrust: document.getElementById("btn-open-codex-trust"),
   btnCopyHooksCommand: document.getElementById("btn-copy-hooks-command"),
   btnCheckCodexTrust: document.getElementById("btn-check-codex-trust"),
+  onboarding: document.getElementById("onboarding"),
+  onboardingStepDiscover: document.getElementById("onboarding-step-discover"),
+  onboardingStepHooks: document.getElementById("onboarding-step-hooks"),
+  onboardingStepTrust: document.getElementById("onboarding-step-trust"),
+  onboardingStepTest: document.getElementById("onboarding-step-test"),
+  onboardingDiscoverDetail: document.getElementById("onboarding-discover-detail"),
+  onboardingHooksDetail: document.getElementById("onboarding-hooks-detail"),
+  onboardingTrustDetail: document.getElementById("onboarding-trust-detail"),
+  onboardingTestDetail: document.getElementById("onboarding-test-detail"),
+  onboardingTrustHelp: document.getElementById("onboarding-trust-help"),
+  onboardingFinish: document.getElementById("onboarding-finish"),
+  btnOnboardingOpenCodex: document.getElementById("btn-onboarding-open-codex"),
+  btnOnboardingCopyHooks: document.getElementById("btn-onboarding-copy-hooks"),
+  btnOnboardingRetry: document.getElementById("btn-onboarding-retry"),
+  btnOnboardingClose: document.getElementById("btn-onboarding-close"),
 };
 
 let sessions = [];
@@ -55,6 +71,7 @@ let prevStates = new Map();
 let cfg = {
   alwaysOnTop: true,
   sound: false,
+  showPromptSummary: true,
   autoLaunch: true,
   terminalCommand: "claude",
   terminalExecutable: null,
@@ -71,6 +88,8 @@ let idleStackInitialized = false;
 let hookInstallStatus = null;
 let hookHelpOpen = false;
 let hookOperationPending = false;
+let onboardingPending = false;
+let onboardingPollTimer = null;
 const BROWSE_TERMINAL_VALUE = "__browse__";
 
 let _audioCtx = null;
@@ -121,8 +140,80 @@ async function saveSetting(patch) {
 function detailText(s) {
   if (s.state === "needs_input" && s.message) return s.message;
   if (s.state === "working" && s.currentTool) return `工具：${s.currentTool}`;
-  if (s.lastPrompt) return s.lastPrompt;
+  if (cfg.showPromptSummary !== false && s.lastPrompt) return s.lastPrompt;
   return "";
+}
+
+function onboardingClientNames(detected) {
+  const names = [];
+  if (detected && detected.claude) names.push("Claude");
+  if (detected && detected.codex) names.push("Codex");
+  return names;
+}
+
+function setOnboardingStep(element, ok, pending = false) {
+  element.dataset.state = pending ? "pending" : ok ? "done" : "attention";
+  element.querySelector(".onboarding-step-marker").textContent = ok ? "\u2713" : element.id.slice(-1) === "r" ? "1" :
+    element.id.endsWith("hooks") ? "2" : element.id.endsWith("trust") ? "3" : "4";
+}
+
+function scheduleOnboardingPoll(status) {
+  clearTimeout(onboardingPollTimer);
+  onboardingPollTimer = null;
+  if (els.onboarding.classList.contains("hidden") || status.ready || onboardingPending) return;
+  onboardingPollTimer = setTimeout(() => void runOnboardingChecks(true), 3000);
+}
+
+function renderOnboarding(status) {
+  if (!status) return;
+  const steps = status.steps || {};
+  const detectedNames = onboardingClientNames(status.detected);
+  setOnboardingStep(els.onboardingStepDiscover, !!(steps.discover && steps.discover.ok));
+  setOnboardingStep(els.onboardingStepHooks, !!(steps.hooks && steps.hooks.ok));
+  setOnboardingStep(els.onboardingStepTrust, !!(steps.trust && steps.trust.ok));
+  setOnboardingStep(els.onboardingStepTest, !!(steps.test && steps.test.ok));
+  els.onboardingDiscoverDetail.textContent = detectedNames.length
+    ? `已发现 ${detectedNames.join("、")}`
+    : "未发现 Claude 或 Codex 命令";
+  els.onboardingHooksDetail.textContent = steps.hooks && steps.hooks.ok
+    ? "已为发现的客户端安装"
+    : "Hook 未安装完整，将自动重试";
+  const trustRequired = !!(steps.trust && steps.trust.required);
+  els.onboardingTrustDetail.textContent = !trustRequired
+    ? "未发现 Codex，已跳过"
+    : steps.trust.ok ? "Codex Hook 已信任" : "等待在 Codex 中确认信任";
+  els.onboardingTestDetail.textContent = steps.test && steps.test.ok
+    ? "本地事件已成功送达"
+    : "测试事件未送达，将自动重试";
+  els.onboardingTrustHelp.classList.toggle("hidden", !trustRequired || !!steps.trust.ok);
+  els.onboardingFinish.classList.toggle("hidden", !status.ready);
+  els.btnOnboardingClose.disabled = !status.ready || onboardingPending;
+  scheduleOnboardingPoll(status);
+}
+
+function setOnboardingOpen(open) {
+  els.onboarding.classList.toggle("hidden", !open);
+  document.body.classList.toggle("onboarding-open", open);
+  if (!open) {
+    clearTimeout(onboardingPollTimer);
+    onboardingPollTimer = null;
+  }
+}
+
+async function runOnboardingChecks(silent = false) {
+  if (onboardingPending || isDemoMode) return;
+  onboardingPending = true;
+  els.btnOnboardingRetry.disabled = true;
+  els.btnOnboardingRetry.textContent = "检查中...";
+  try {
+    renderOnboarding(await window.ccPanel.runOnboardingChecks());
+  } catch {
+    if (!silent) showToast("自动检查失败，请重试");
+  } finally {
+    onboardingPending = false;
+    els.btnOnboardingRetry.disabled = false;
+    els.btnOnboardingRetry.textContent = "重新检查";
+  }
 }
 
 const HOOK_STATUS_LABELS = {
@@ -539,6 +630,7 @@ function refreshConfigButtons() {
   els.btnSettings.classList.toggle("active", !els.settingsPanel.classList.contains("hidden"));
   els.settingAlwaysOnTop.checked = !!cfg.alwaysOnTop;
   els.settingSound.checked = !!cfg.sound;
+  els.settingPromptSummary.checked = cfg.showPromptSummary !== false;
   els.settingAutoLaunch.checked = !!cfg.autoLaunch;
   renderTerminalOptions();
 }
@@ -808,6 +900,16 @@ els.settingSound.addEventListener("change", async () => {
   await saveSetting({ sound: els.settingSound.checked });
 });
 
+els.settingPromptSummary.addEventListener("change", async () => {
+  if (isDemoMode) {
+    cfg.showPromptSummary = els.settingPromptSummary.checked;
+    refreshConfigButtons();
+    render();
+    return;
+  }
+  if (await saveSetting({ showPromptSummary: els.settingPromptSummary.checked })) render();
+});
+
 els.settingTerminalExecutable.addEventListener("change", async () => {
   if (isDemoMode) {
     showToast("Demo 模式不会修改终端设置");
@@ -851,6 +953,34 @@ els.settingAutoLaunch.addEventListener("change", async () => {
   }
 });
 
+els.btnOnboardingOpenCodex.addEventListener("click", () => {
+  const directory = Array.isArray(cfg.terminalHistory) ? cfg.terminalHistory[0] : undefined;
+  void openTerminal("codex", directory);
+});
+els.btnOnboardingCopyHooks.addEventListener("click", () => {
+  if (!isDemoMode) window.ccPanel.copyHooksCommand();
+  showToast("已复制 /hooks");
+});
+els.btnOnboardingRetry.addEventListener("click", () => void runOnboardingChecks());
+els.btnOnboardingClose.addEventListener("click", async () => {
+  if (isDemoMode) {
+    setOnboardingOpen(false);
+    return;
+  }
+  try {
+    const result = await window.ccPanel.completeOnboarding();
+    if (!result.ok) {
+      renderOnboarding(result.onboarding);
+      showToast(result.reason === "config_write_failed" ? "向导状态未保存" : "四步检查尚未全部完成");
+      return;
+    }
+    cfg.onboardingCompleted = true;
+    setOnboardingOpen(false);
+  } catch {
+    showToast("无法关闭向导，请重试");
+  }
+});
+
 document.addEventListener("click", (event) => {
   if (!els.newTerminalControl.contains(event.target)) setTerminalHistoryOpen(false);
   if (els.settingsPanel.classList.contains("hidden")) return;
@@ -872,6 +1002,7 @@ setInterval(() => refreshStateAges(), 1000);
     cfg = {
       alwaysOnTop: false,
       sound: false,
+      showPromptSummary: true,
       autoLaunch: false,
       terminalCommand: "claude",
       terminalExecutable: null,
@@ -898,6 +1029,11 @@ setInterval(() => refreshStateAges(), 1000);
   renderTerminalHistory();
   await scanTerminalApps();
   renderHookInstallStatus(state.hookInstallStatus);
+  renderOnboarding(state.onboarding);
+  if (!state.onboarding.completed) {
+    setOnboardingOpen(true);
+    void runOnboardingChecks();
+  }
   if (state.autoLaunchStatus && !state.autoLaunchStatus.ok) {
     showToast("开机自启动设置失败：" + (state.autoLaunchStatus.error || "未知错误"));
   }

@@ -11,8 +11,10 @@ const DEFAULTS = {
   bounds: null,          // {x,y,width,height}
   alwaysOnTop: true,
   sound: false,
+  showPromptSummary: true,
   autoLaunch: true,
   hooksEnabled: true,
+  onboardingCompleted: false,
   terminalDir: null,
   terminalHistory: [],
   terminalCommand: "claude",

@@ -938,7 +938,7 @@ input:focus-visible {
 
 @media (max-width: 330px) {
   .bottom-toolbar {
-    grid-template-columns: 32px 32px 32px minmax(0, 1fr);
+    grid-template-columns: 32px 32px minmax(0, 1fr);
     gap: 5px;
     padding-inline: 8px;
   }

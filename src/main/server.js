@@ -107,4 +107,37 @@ function clearRuntime() {
   try { fs.unlinkSync(RUNTIME_PATH); } catch {}
 }
 
-module.exports = { start, clearRuntime, handle };
+function sendTestEvent(port) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify({
+      __ccPanelTest: true,
+      session_id: `cc-panel-onboarding-${Date.now()}`,
+    });
+    const request = http.request({
+      host: "127.0.0.1",
+      port,
+      path: "/event",
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": Buffer.byteLength(body),
+      },
+    }, (response) => {
+      response.resume();
+      response.on("end", () => resolve({
+        ok: response.statusCode === 200 && response.headers["x-cc-panel"] === "1",
+        statusCode: response.statusCode,
+        testedAt: Date.now(),
+      }));
+    });
+    request.setTimeout(2000, () => request.destroy(new Error("test event timed out")));
+    request.on("error", (err) => resolve({
+      ok: false,
+      error: String(err.message || err),
+      testedAt: Date.now(),
+    }));
+    request.end(body);
+  });
+}
+
+module.exports = { start, clearRuntime, handle, sendTestEvent };

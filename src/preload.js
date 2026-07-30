@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld("ccPanel", {
   openTerminal: (command, directory) => ipcRenderer.invoke("open-terminal", command, directory),
   installHooks: () => ipcRenderer.invoke("install-hooks"),
   inspectHooks: () => ipcRenderer.invoke("inspect-hooks"),
+  runOnboardingChecks: () => ipcRenderer.invoke("run-onboarding-checks"),
+  completeOnboarding: () => ipcRenderer.invoke("complete-onboarding"),
   uninstallHooks: () => ipcRenderer.invoke("uninstall-hooks"),
   copyHooksCommand: () => clipboard.writeText("/hooks"),
   setConfig: (patch) => ipcRenderer.invoke("set-config", patch),

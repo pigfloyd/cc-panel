@@ -13,6 +13,47 @@
     <p>还没有 Claude Code 或 Codex 会话</p>
     <p class="hint">打开终端后启动 <code>claude</code> 或 <code>codex</code>，<br/>会话卡片会自动出现在这里</p>
   </div>
+  <section id="onboarding" class="onboarding hidden" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <div class="onboarding-panel">
+      <header class="onboarding-header">
+        <span class="onboarding-kicker">首次启动</span>
+        <h1 id="onboarding-title">准备 cc-panel</h1>
+        <p>正在自动检查本机环境和实时状态通道。</p>
+      </header>
+      <ol class="onboarding-steps">
+        <li id="onboarding-step-discover" data-state="pending">
+          <span class="onboarding-step-marker" aria-hidden="true">1</span>
+          <span><strong>发现 Claude / Codex</strong><small id="onboarding-discover-detail">正在检测命令行工具</small></span>
+        </li>
+        <li id="onboarding-step-hooks" data-state="pending">
+          <span class="onboarding-step-marker" aria-hidden="true">2</span>
+          <span><strong>安装 Hook</strong><small id="onboarding-hooks-detail">等待环境检测</small></span>
+        </li>
+        <li id="onboarding-step-trust" data-state="pending">
+          <span class="onboarding-step-marker" aria-hidden="true">3</span>
+          <span><strong>Codex 信任</strong><small id="onboarding-trust-detail">等待 Hook 安装</small></span>
+        </li>
+        <li id="onboarding-step-test" data-state="pending">
+          <span class="onboarding-step-marker" aria-hidden="true">4</span>
+          <span><strong>发送测试事件</strong><small id="onboarding-test-detail">等待事件服务</small></span>
+        </li>
+      </ol>
+      <div id="onboarding-trust-help" class="onboarding-trust-help hidden">
+        <p>Codex 已安装 Hook，还需要你确认一次信任。</p>
+        <div>
+          <button id="btn-onboarding-open-codex" type="button">打开 Codex</button>
+          <button id="btn-onboarding-copy-hooks" type="button">复制 /hooks</button>
+        </div>
+      </div>
+      <div id="onboarding-finish" class="onboarding-finish hidden" aria-live="polite">
+        <strong>现在可以关闭向导<br />并开始使用</strong>
+      </div>
+      <footer class="onboarding-actions">
+        <button id="btn-onboarding-retry" type="button">重新检查</button>
+        <button id="btn-onboarding-close" class="primary" type="button" disabled>关闭向导</button>
+      </footer>
+    </div>
+  </section>
   <nav class="bottom-toolbar" aria-label="终端操作">
     <button id="btn-settings" class="icon-btn" type="button" title="设置" aria-label="设置">&#9881;</button>
     <button id="btn-collapse-terminals" class="icon-btn" type="button" title="收起所有终端窗口（Ctrl+Shift+Z）" aria-label="收起所有终端窗口，快捷键 Ctrl+Shift+Z">
@@ -36,6 +77,10 @@
     <label class="setting-row" for="setting-sound">
       <span>状态提示音</span>
       <input id="setting-sound" type="checkbox" />
+    </label>
+    <label class="setting-row" for="setting-prompt-summary">
+      <span>显示最后任务</span>
+      <input id="setting-prompt-summary" type="checkbox" />
     </label>
     <label class="setting-row" for="setting-auto-launch">
       <span>开机自启动</span>
