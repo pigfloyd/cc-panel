@@ -15,7 +15,13 @@
   </div>
   <nav class="bottom-toolbar" aria-label="终端操作">
     <button id="btn-settings" class="icon-btn" type="button" title="设置" aria-label="设置">&#9881;</button>
-    <button id="btn-collapse-terminals" class="icon-btn" type="button" title="收起所有终端窗口（Ctrl+Shift+Z）" aria-label="收起所有终端窗口，快捷键 Ctrl+Shift+Z">&#8212;</button>
+    <button id="btn-collapse-terminals" class="icon-btn" type="button" title="收起所有终端窗口（Ctrl+Shift+Z）" aria-label="收起所有终端窗口，快捷键 Ctrl+Shift+Z">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 4h12a2 2 0 0 1 2 2v7" />
+        <path d="M4 8h12a2 2 0 0 1 2 2v3" />
+        <path d="m9 16 3 3 3-3M12 19v-7" />
+      </svg>
+    </button>
     <div class="new-terminal-control">
       <button id="btn-claude-terminal" class="toolbar-btn toolbar-btn-primary" type="button" aria-haspopup="menu" aria-expanded="false">Claude Code</button>
       <button id="btn-codex-terminal" class="toolbar-btn toolbar-btn-primary" type="button" aria-haspopup="menu" aria-expanded="false">Codex CLI</button>

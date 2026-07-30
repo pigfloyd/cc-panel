@@ -2,11 +2,13 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const crypto = require("crypto");
 
 const CLAUDE_SETTINGS_PATH = path.join(os.homedir(), ".claude", "settings.json");
 const CLAUDE_BACKUP_PATH = CLAUDE_SETTINGS_PATH + ".cc-panel-bak";
 const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 const CODEX_HOOKS_PATH = path.join(CODEX_HOME, "hooks.json");
+const CODEX_CONFIG_PATH = path.join(CODEX_HOME, "config.toml");
 const CODEX_BACKUP_PATH = CODEX_HOOKS_PATH + ".cc-panel-bak";
 const HOOK_SCRIPT = path.join(__dirname, "..", "..", "hook", "cc-panel-hook.js");
 const HOOK_CMD = path.join(__dirname, "..", "..", "hook", "cc-panel-hook.cmd");
@@ -26,12 +28,49 @@ const CLAUDE_EVENTS = [
 
 const CODEX_EVENTS = [
   "SessionStart",
+  "SessionEnd",
   "UserPromptSubmit",
   "PreToolUse",
   "PermissionRequest",
   "PostToolUse",
   "Stop",
 ];
+
+const CODEX_EVENT_LABELS = {
+  PreToolUse: "pre_tool_use",
+  PermissionRequest: "permission_request",
+  PostToolUse: "post_tool_use",
+  PreCompact: "pre_compact",
+  PostCompact: "post_compact",
+  SessionStart: "session_start",
+  SessionEnd: "session_end",
+  UserPromptSubmit: "user_prompt_submit",
+  SubagentStart: "subagent_start",
+  SubagentStop: "subagent_stop",
+  Stop: "stop",
+};
+
+const CODEX_MATCHER_EVENTS = new Set([
+  "PreToolUse",
+  "PermissionRequest",
+  "PostToolUse",
+  "PreCompact",
+  "PostCompact",
+  "SessionStart",
+  "SessionEnd",
+  "SubagentStart",
+  "SubagentStop",
+]);
+
+const CODEX_ADDITIONAL_CONTEXT_EVENTS = new Set([
+  "PreToolUse",
+  "PostToolUse",
+  "SessionStart",
+  "UserPromptSubmit",
+  "SubagentStart",
+]);
+
+const CODEX_DEFAULT_CONTEXT_LIMIT = 2500;
 
 function nodePath() {
   // 1. Ask the shell — catches nvm, fnm, Scoop, Chocolatey, custom PATH installs.
@@ -103,6 +142,119 @@ function entryHasMarker(entry) {
     const commands = [h.command, h.commandWindows, h.command_windows].filter((value) => typeof value === "string");
     return commands.some((command) => MARKERS.some((marker) => command.includes(marker)));
   });
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (!value || typeof value !== "object") return value;
+  return Object.keys(value).sort().reduce((result, key) => {
+    result[key] = canonicalJson(value[key]);
+    return result;
+  }, {});
+}
+
+function normalizedCodexTimeout(event, timeout) {
+  if (event === "SessionEnd") {
+    return Math.min(3, Math.max(1, Number.isInteger(timeout) ? timeout : 1));
+  }
+  return Math.max(1, Number.isInteger(timeout) ? timeout : 600);
+}
+
+function codexHookHash(event, group, handler, platform = process.platform) {
+  const eventLabel = CODEX_EVENT_LABELS[event];
+  if (!eventLabel || !handler || handler.type !== "command") return null;
+
+  const command = platform === "win32" && typeof handler.commandWindows === "string"
+    ? handler.commandWindows
+    : handler.command;
+  if (typeof command !== "string" || !command.trim()) return null;
+
+  const normalizedHandler = {
+    type: "command",
+    command,
+    timeout: normalizedCodexTimeout(event, handler.timeout),
+    async: handler.async === true,
+  };
+  if (typeof handler.statusMessage === "string") {
+    normalizedHandler.statusMessage = handler.statusMessage;
+  }
+  if (
+    CODEX_ADDITIONAL_CONTEXT_EVENTS.has(event)
+    && Number.isInteger(handler.additionalContextLimit)
+    && handler.additionalContextLimit !== CODEX_DEFAULT_CONTEXT_LIMIT
+  ) {
+    normalizedHandler.additionalContextLimit = handler.additionalContextLimit;
+  }
+
+  const identity = {
+    event_name: eventLabel,
+    hooks: [normalizedHandler],
+  };
+  if (CODEX_MATCHER_EVENTS.has(event) && typeof group.matcher === "string") {
+    identity.matcher = group.matcher;
+  }
+  const serialized = JSON.stringify(canonicalJson(identity));
+  return `sha256:${crypto.createHash("sha256").update(serialized).digest("hex")}`;
+}
+
+function decodeTomlString(value) {
+  if (value.startsWith("'") && value.endsWith("'")) return value.slice(1, -1);
+  if (!value.startsWith('"') || !value.endsWith('"')) return null;
+  try { return JSON.parse(value); } catch { return null; }
+}
+
+function parseCodexHookStates(raw) {
+  const states = new Map();
+  let currentKey = null;
+  for (const line of String(raw).split(/\r?\n/)) {
+    const trimmed = line.trim();
+    const header = trimmed.match(/^\[\s*hooks\.state\.(.+?)\s*\]$/);
+    if (header) {
+      currentKey = decodeTomlString(header[1]);
+      if (currentKey !== null && !states.has(currentKey)) states.set(currentKey, {});
+      continue;
+    }
+    if (trimmed.startsWith("[")) {
+      currentKey = null;
+      continue;
+    }
+    if (currentKey === null) continue;
+
+    const trustedHash = trimmed.match(/^trusted_hash\s*=\s*("(?:[^"\\]|\\.)*")\s*(?:#.*)?$/);
+    if (trustedHash) {
+      const value = decodeTomlString(trustedHash[1]);
+      if (value !== null) states.get(currentKey).trustedHash = value;
+      continue;
+    }
+    const enabled = trimmed.match(/^enabled\s*=\s*(true|false)\s*(?:#.*)?$/);
+    if (enabled) states.get(currentKey).enabled = enabled[1] === "true";
+  }
+  return states;
+}
+
+function hasTrustedCodexHooks(settings, states, hooksPath = CODEX_HOOKS_PATH, platform = process.platform) {
+  const hooks = settings.hooks || {};
+  return CODEX_EVENTS.every((event) => {
+    const groups = hooks[event];
+    if (!Array.isArray(groups)) return false;
+    return groups.some((group, groupIndex) => (
+      Array.isArray(group && group.hooks) && group.hooks.some((handler, handlerIndex) => {
+        const commands = [handler && handler.command, handler && handler.commandWindows, handler && handler.command_windows]
+          .filter((value) => typeof value === "string");
+        if (!commands.some((command) => MARKERS.some((marker) => command.includes(marker)))) return false;
+        const key = `${hooksPath}:${CODEX_EVENT_LABELS[event]}:${groupIndex}:${handlerIndex}`;
+        const state = states.get(key);
+        return !!state
+          && state.enabled !== false
+          && state.trustedHash === codexHookHash(event, group, handler, platform);
+      })
+    ));
+  });
+}
+
+function readCodexHookStates() {
+  if (!fs.existsSync(CODEX_CONFIG_PATH)) return new Map();
+  return parseCodexHookStates(fs.readFileSync(CODEX_CONFIG_PATH, "utf8"));
 }
 
 function claudeEntry(event) {
@@ -202,7 +354,10 @@ function isClaudeInstalled() {
 }
 
 function isCodexInstalled() {
-  try { return hasAll(readJsonFile(CODEX_HOOKS_PATH, {}), CODEX_EVENTS); } catch { return false; }
+  try {
+    const settings = readJsonFile(CODEX_HOOKS_PATH, {});
+    return hasAll(settings, CODEX_EVENTS) && hasTrustedCodexHooks(settings, readCodexHookStates());
+  } catch { return false; }
 }
 
 function inspectClient(file, events, pendingWhenMissing = false) {
@@ -218,9 +373,19 @@ function inspectClient(file, events, pendingWhenMissing = false) {
 }
 
 function inspect() {
+  const codex = inspectClient(CODEX_HOOKS_PATH, CODEX_EVENTS);
+  if (codex.status === "installed") {
+    try {
+      const settings = readJsonFile(CODEX_HOOKS_PATH, {});
+      if (!hasTrustedCodexHooks(settings, readCodexHookStates())) codex.status = "pending_trust";
+    } catch (err) {
+      codex.status = "failed";
+      codex.error = String(err.message || err);
+    }
+  }
   return {
     claude: inspectClient(CLAUDE_SETTINGS_PATH, CLAUDE_EVENTS, true),
-    codex: inspectClient(CODEX_HOOKS_PATH, CODEX_EVENTS),
+    codex,
   };
 }
 
@@ -309,8 +474,12 @@ module.exports = {
   CODEX_EVENTS,
   SETTINGS_PATH: CLAUDE_SETTINGS_PATH,
   CODEX_HOOKS_PATH,
+  CODEX_CONFIG_PATH,
   claudeEntry,
   codexEntry,
+  codexHookHash,
+  parseCodexHookStates,
+  hasTrustedCodexHooks,
   hasAll,
   installEntries,
   summarizeInstallResults,

@@ -127,7 +127,7 @@ function renderHookInstallStatus(status) {
     element.dataset.status = clientStatus;
     element.textContent = HOOK_STATUS_LABELS[clientStatus];
     element.title = client.error || (clientStatus === "pending_trust"
-      ? "信任并启动 Claude Code 后将自动安装"
+      ? (name === "codex" ? "请在 Codex 中使用 /hooks 信任当前 Hook" : "信任并启动 Claude Code 后将自动安装")
       : "");
   }
   const hasFailure = clientStates.includes("failed");

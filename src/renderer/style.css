@@ -496,6 +496,17 @@ input:focus-visible {
   transition: color 0.14s ease, border-color 0.14s ease, background 0.14s ease;
 }
 
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
 .icon-btn:hover {
   color: var(--text);
   border-color: var(--border-strong);
