@@ -318,6 +318,11 @@ function toolNameFromPayload(payload) {
   return null;
 }
 
+function notificationTypeFromPayload(payload) {
+  const value = payload.notification_type || payload.notificationType;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function extractPromptLine(prompt) {
   if (typeof prompt !== "string") return null;
   for (const line of prompt.split(/\r?\n/)) {
@@ -397,6 +402,11 @@ async function main() {
   const event = process.argv[2];
   const source = process.argv[3] || "unknown";
   if (!EVENTS.has(event)) process.exit(0);
+  // Async hooks can finish out of order, especially UserPromptSubmit because
+  // it also waits for the process/window snapshot. Timestamp the lifecycle
+  // event before doing any asynchronous work so SessionStore can reject a
+  // delayed event that belongs before a newer Stop or tool event.
+  const eventTs = Date.now();
 
   // Run snapshot and stdin read in parallel so their costs overlap.
   const [snapshot, payload] = await Promise.all([
@@ -407,7 +417,7 @@ async function main() {
   const body = {
     v: 1,
     event,
-    ts: Date.now(),
+    ts: eventTs,
     client: source,
     session_id: sessionIdFromPayload(payload, source),
     cwd: payload.cwd || payload.current_working_directory || process.cwd(),
@@ -427,6 +437,10 @@ async function main() {
   if ((event === "Notification" || event === "PermissionRequest") && typeof payload.message === "string") {
     body.message = payload.message.slice(0, 200);
   }
+  if (event === "Notification") {
+    const notificationType = notificationTypeFromPayload(payload);
+    if (notificationType) body.notification_type = notificationType;
+  }
   if (snapshot) {
     const resolved = resolveFromSnapshot(snapshot);
     if (resolved.agent_pid) body.agent_pid = resolved.agent_pid;
@@ -445,6 +459,7 @@ if (require.main === module) {
 
 module.exports = {
   codexSessionIdFromTranscriptPath,
+  notificationTypeFromPayload,
   resolveFromSnapshot,
   sessionIdFromPayload,
 };

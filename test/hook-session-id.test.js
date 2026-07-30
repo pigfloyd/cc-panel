@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   codexSessionIdFromTranscriptPath,
+  notificationTypeFromPayload,
   sessionIdFromPayload,
 } = require("../hook/cc-panel-hook");
 const { codexEntry } = require("../src/main/hook-installer");
@@ -28,6 +29,12 @@ test("uses UUIDv7 Codex rollout transcript IDs across hook lifecycle events", ()
 test("prefixes Codex fallback IDs without changing Claude IDs", () => {
   assert.equal(sessionIdFromPayload({ session_id: "session-1" }, "codex"), "codex:session-1");
   assert.equal(sessionIdFromPayload({ session_id: "session-1" }, "claude"), "session-1");
+});
+
+test("normalizes Claude notification types for the panel payload", () => {
+  assert.equal(notificationTypeFromPayload({ notification_type: "permission_prompt" }), "permission_prompt");
+  assert.equal(notificationTypeFromPayload({ notificationType: " idle_prompt " }), "idle_prompt");
+  assert.equal(notificationTypeFromPayload({ notification_type: "" }), null);
 });
 
 test("builds a directly executable Codex Windows hook command", () => {

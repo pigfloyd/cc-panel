@@ -105,6 +105,99 @@ test("returns Claude and Codex sessions to done when a turn stops", () => {
   }
 });
 
+test("maps Claude notifications without treating informational events as input requests", () => {
+  const cases = [
+    ["permission_prompt", "needs_input", "Approve Bash"],
+    ["elicitation_dialog", "needs_input", "Complete the form"],
+    ["agent_needs_input", "needs_input", "Background session needs input"],
+    ["idle_prompt", "done", null],
+    ["agent_completed", "done", null],
+    ["elicitation_complete", "working", null],
+    ["elicitation_response", "working", null],
+  ];
+
+  for (const [notificationType, expectedState, expectedMessage] of cases) {
+    const store = new SessionStore();
+    store.dispose();
+    store.handleEvent({
+      session_id: `claude:${notificationType}`,
+      event: "Notification",
+      client: "claude",
+      notification_type: notificationType,
+      message: "Notification message",
+      ts: 100,
+    });
+
+    const [session] = store.snapshot();
+    assert.equal(session.state, expectedState, notificationType);
+    assert.equal(session.message, expectedMessage === null ? null : "Notification message", notificationType);
+  }
+});
+
+test("ignores authentication, unknown, and untyped notifications", () => {
+  const store = new SessionStore();
+  store.dispose();
+
+  for (const notificationType of ["auth_success", "future_notification", undefined]) {
+    store.handleEvent({
+      session_id: "claude:notification-ignore",
+      event: "Notification",
+      client: "claude",
+      notification_type: notificationType,
+      message: "Informational notification",
+      ts: 200,
+    });
+  }
+  assert.deepEqual(store.snapshot(), []);
+
+  store.handleEvent({
+    session_id: "claude:notification-ignore",
+    event: "UserPromptSubmit",
+    client: "claude",
+    ts: 100,
+  });
+  store.handleEvent({
+    session_id: "claude:notification-ignore",
+    event: "Notification",
+    client: "claude",
+    notification_type: "auth_success",
+    ts: 300,
+  });
+  store.handleEvent({
+    session_id: "claude:notification-ignore",
+    event: "Stop",
+    client: "claude",
+    ts: 200,
+  });
+
+  assert.equal(store.snapshot()[0].state, "done");
+  assert.equal(store.snapshot()[0].stateSince, 200);
+});
+
+test("ignores a delayed async prompt hook after the turn has stopped", () => {
+  const store = new SessionStore();
+  store.dispose();
+
+  store.handleEvent({
+    session_id: "claude:delayed-prompt",
+    event: "Stop",
+    client: "claude",
+    ts: 300,
+  });
+  store.handleEvent({
+    session_id: "claude:delayed-prompt",
+    event: "UserPromptSubmit",
+    client: "claude",
+    prompt_line: "slow snapshot",
+    ts: 100,
+  });
+
+  const [session] = store.snapshot();
+  assert.equal(session.state, "done");
+  assert.equal(session.stateSince, 300);
+  assert.equal(session.lastPrompt, null);
+});
+
 test("recognizes Codex and Claude transcript interruption records", () => {
   const codexTimestamp = transcriptInterruptionTimestamp(JSON.stringify({
     timestamp: "2026-07-17T01:25:00.441Z",

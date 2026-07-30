@@ -267,7 +267,7 @@ function createWindow() {
     icon: APP_ICON_PATH,
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
-    backgroundColor: "#eef1f4",
+    backgroundColor: "#e8ece8",
     ...(process.platform === "win32" ? {
       backgroundMaterial: "mica",
     } : {}),

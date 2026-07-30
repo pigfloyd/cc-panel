@@ -81,6 +81,20 @@ test("restores externally removed Claude hooks without rewriting healthy setting
   assert.equal(hasAll(settings, CLAUDE_EVENTS), true);
 });
 
+test("upgrades Claude hooks with PostToolUse for successful tool completion", () => {
+  const legacyEvents = CLAUDE_EVENTS.filter((event) => event !== "PostToolUse");
+  const settings = {};
+
+  assert.equal(installEntries(settings, legacyEvents, claudeEntry), true);
+  assert.equal(hasAll(settings, legacyEvents), true);
+  assert.equal(hasAll(settings, CLAUDE_EVENTS), false);
+
+  assert.equal(installEntries(settings, CLAUDE_EVENTS, claudeEntry), true);
+  assert.equal(hasAll(settings, CLAUDE_EVENTS), true);
+  assert.match(settings.hooks.PostToolUse[0].hooks[0].command, /PostToolUse claude$/i);
+  assert.equal(installEntries(settings, CLAUDE_EVENTS, claudeEntry), false);
+});
+
 test("upgrades Codex hooks with SessionEnd for immediate session cleanup", () => {
   const legacyEvents = CODEX_EVENTS.filter((event) => event !== "SessionEnd");
   const settings = {};

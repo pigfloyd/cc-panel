@@ -12,7 +12,16 @@ const EVENT_STATE = {
   Stop: "done",
   StopFailure: "error",
   PostToolUseFailure: "error",
-  Notification: "needs_input",
+};
+
+const NOTIFICATION_STATE = {
+  permission_prompt: "needs_input",
+  elicitation_dialog: "needs_input",
+  agent_needs_input: "needs_input",
+  idle_prompt: "done",
+  agent_completed: "done",
+  elicitation_complete: "working",
+  elicitation_response: "working",
 };
 
 const POLL_MS = 5000;
@@ -40,6 +49,12 @@ class SessionStore {
     if (!body || typeof body !== "object" || !body.session_id || !body.event) return;
     const rawId = body.session_id;
     const ts = Number(body.ts) || Date.now();
+    const notificationState = body.event === "Notification"
+      ? NOTIFICATION_STATE[String(body.notification_type || "").toLowerCase()]
+      : null;
+    // Notifications such as auth_success are informational and must not
+    // create a session or overwrite a lifecycle-derived state.
+    if (body.event === "Notification" && !notificationState) return;
 
     // Process discovery runs repeatedly as a fallback for missing hooks. If a
     // real hook card already represents this process, enrich that card instead
@@ -136,7 +151,7 @@ class SessionStore {
       this._replaceResetSession(s);
     }
 
-    const next = EVENT_STATE[body.event];
+    const next = notificationState || EVENT_STATE[body.event];
     if (!next) return;
 
     if (body.event === "PreToolUse" || body.event === "PermissionRequest") {
@@ -164,7 +179,7 @@ class SessionStore {
       s.waitingForTranscriptInput = false;
       s.unmatchedPreToolUseTimestamps = [];
     }
-    if (body.event === "Notification") s.message = body.message || null;
+    if (body.event === "Notification" && next === "needs_input") s.message = body.message || null;
     else if (body.event !== "PreToolUse") s.message = null;
     const effectiveNext = body.event === "PreToolUse" && s.transcriptInputCalls.size > 0
       ? "needs_input"
