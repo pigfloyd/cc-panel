@@ -232,6 +232,23 @@ function configSnapshot(extra = {}) {
     ...extra,
   };
 }
+
+function persistConfig(mutator) {
+  try {
+    cfg = config.update(cfg, mutator);
+  } catch (err) {
+    const error = String(err.message || err);
+    console.error("[cc-panel] config save failed:", error);
+    return {
+      ok: false,
+      reason: "config_write_failed",
+      error,
+      config: configSnapshot(),
+    };
+  }
+  return { ok: true, config: configSnapshot() };
+}
+
 function defaultBounds(displays = screen.getAllDisplays()) {
   // Prefer the secondary display; dock to its right edge.
   const primary = screen.getPrimaryDisplay();
@@ -273,8 +290,7 @@ function createWindow() {
     clearTimeout(saveBoundsTimer);
     saveBoundsTimer = setTimeout(() => {
       if (demoMode || !win || win.isDestroyed() || win.isMinimized()) return;
-      cfg.bounds = win.getBounds();
-      config.save(cfg);
+      persistConfig((next) => { next.bounds = win.getBounds(); });
     }, 500);
   };
   win.on("move", persistBounds);
@@ -311,9 +327,7 @@ function registerIpc() {
     if (normalized && path.extname(normalized).toLowerCase() !== ".exe") {
       return { ok: false, reason: "invalid_executable", config: configSnapshot() };
     }
-    cfg.terminalExecutable = normalized;
-    config.save(cfg);
-    return { ok: true, config: configSnapshot() };
+    return persistConfig((next) => { next.terminalExecutable = normalized; });
   });
 
   ipcMain.handle("select-terminal-executable", async () => {
@@ -331,9 +345,7 @@ function registerIpc() {
       return { ok: false, reason: "invalid_executable", config: configSnapshot() };
     }
 
-    cfg.terminalExecutable = selection.filePaths[0];
-    config.save(cfg);
-    return { ok: true, config: configSnapshot() };
+    return persistConfig((next) => { next.terminalExecutable = selection.filePaths[0]; });
   });
 
   ipcMain.handle("open-terminal", async (_event, terminalCommand, requestedDirectory) => {
@@ -362,14 +374,22 @@ function registerIpc() {
     }
 
     if (!isDirectory(cwd)) {
-      cfg.terminalHistory = removeTerminalDirectory(cfg.terminalHistory, cwd);
-      config.save(cfg);
-      return { ok: false, reason: "invalid_directory", config: configSnapshot() };
+      const saved = persistConfig((next) => {
+        next.terminalHistory = removeTerminalDirectory(next.terminalHistory, cwd);
+      });
+      return {
+        ok: false,
+        reason: "invalid_directory",
+        config: saved.config,
+        ...(!saved.ok ? { configSaveError: saved.error } : {}),
+      };
     }
 
-    cfg.terminalDir = cwd;
-    cfg.terminalHistory = recordTerminalDirectory(cfg.terminalHistory, cwd);
-    config.save(cfg);
+    const saved = persistConfig((next) => {
+      next.terminalDir = cwd;
+      next.terminalHistory = recordTerminalDirectory(next.terminalHistory, cwd);
+    });
+    const configSaveError = !saved.ok ? saved.error : null;
 
     return new Promise((resolve) => {
       try {
@@ -395,6 +415,7 @@ function registerIpc() {
             terminalCommand,
             terminalExecutable: launch.executable,
             config: configSnapshot(),
+            ...(configSaveError ? { configSaveError } : {}),
           });
         });
         child.once("error", (err) => {
@@ -432,24 +453,27 @@ function registerIpc() {
 
   ipcMain.handle("set-config", (_e, patch) => {
     if (patch && typeof patch === "object") {
-      if (typeof patch.alwaysOnTop === "boolean") {
-        cfg.alwaysOnTop = patch.alwaysOnTop;
-        if (win) win.setAlwaysOnTop(cfg.alwaysOnTop);
-      }
-      if (typeof patch.sound === "boolean") cfg.sound = patch.sound;
-      if (typeof patch.terminalCommand === "string" && TERMINAL_COMMANDS.has(patch.terminalCommand)) {
-        cfg.terminalCommand = patch.terminalCommand;
-      }
+      const saved = persistConfig((next) => {
+        if (typeof patch.alwaysOnTop === "boolean") next.alwaysOnTop = patch.alwaysOnTop;
+        if (typeof patch.sound === "boolean") next.sound = patch.sound;
+        if (typeof patch.terminalCommand === "string" && TERMINAL_COMMANDS.has(patch.terminalCommand)) {
+          next.terminalCommand = patch.terminalCommand;
+        }
+        if (typeof patch.autoLaunch === "boolean") next.autoLaunch = patch.autoLaunch;
+      });
+      if (!saved.ok) return saved;
+
+      if (typeof patch.alwaysOnTop === "boolean" && win) win.setAlwaysOnTop(cfg.alwaysOnTop);
       let autoLaunchError = null;
       if (typeof patch.autoLaunch === "boolean") {
-        cfg.autoLaunch = patch.autoLaunch;
-        const result = setAutoLaunch(cfg.autoLaunch);
-        autoLaunchStatus = result;
-        if (!result.ok) autoLaunchError = result.error;
+        autoLaunchStatus = setAutoLaunch(cfg.autoLaunch);
+        if (!autoLaunchStatus.ok) autoLaunchError = autoLaunchStatus.error;
       }
-      config.save(cfg);
-      return configSnapshot(autoLaunchError ? { autoLaunchError } : {});
+      return {
+        ok: true,
+        config: configSnapshot(autoLaunchError ? { autoLaunchError } : {}),
+      };
     }
-    return configSnapshot();
+    return { ok: true, config: configSnapshot() };
   });
 }

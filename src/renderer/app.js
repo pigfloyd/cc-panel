@@ -80,6 +80,26 @@ function showToast(text) {
   toastTimer = setTimeout(() => els.toast.classList.add("hidden"), 2500);
 }
 
+function applyConfigResult(result) {
+  if (result && result.config) cfg = result.config;
+  refreshConfigButtons();
+  if (result && result.ok) return true;
+  showToast(result && result.reason === "config_write_failed"
+    ? "设置未保存，请检查磁盘权限或文件占用"
+    : "设置未保存，请重试");
+  return false;
+}
+
+async function saveSetting(patch) {
+  try {
+    return applyConfigResult(await window.ccPanel.setConfig(patch));
+  } catch {
+    refreshConfigButtons();
+    showToast("设置未保存，请重试");
+    return false;
+  }
+}
+
 function detailText(s) {
   if (s.state === "needs_input" && s.message) return s.message;
   if (s.state === "working" && s.currentTool) return `工具：${s.currentTool}`;
@@ -531,13 +551,18 @@ async function openTerminal(terminalCommand, directory) {
       cfg = result.config;
       renderTerminalHistory();
     }
+    if (result.ok && result.configSaveError) {
+      showToast("终端已启动，但最近目录未保存，请检查磁盘权限或文件占用");
+    }
     if (!result.ok && result.reason !== "canceled") {
       const message = result.reason === "unsupported_platform"
         ? "当前系统不支持启动终端"
+        : result.reason === "config_write_failed"
+          ? "终端启动设置未保存，请检查磁盘权限或文件占用"
         : result.reason === "invalid_directory"
           ? "该路径已不可用"
           : "无法打开终端";
-      showToast(message + (result.error ? "：" + result.error : ""));
+      showToast(message + (result.error && result.reason !== "config_write_failed" ? "：" + result.error : ""));
     }
   } catch {
     showToast("无法打开终端");
@@ -589,8 +614,7 @@ els.settingAlwaysOnTop.addEventListener("change", async () => {
     refreshConfigButtons();
     return;
   }
-  cfg = await window.ccPanel.setConfig({ alwaysOnTop: els.settingAlwaysOnTop.checked });
-  refreshConfigButtons();
+  await saveSetting({ alwaysOnTop: els.settingAlwaysOnTop.checked });
 });
 
 els.settingSound.addEventListener("change", async () => {
@@ -599,8 +623,7 @@ els.settingSound.addEventListener("change", async () => {
     refreshConfigButtons();
     return;
   }
-  cfg = await window.ccPanel.setConfig({ sound: els.settingSound.checked });
-  refreshConfigButtons();
+  await saveSetting({ sound: els.settingSound.checked });
 });
 
 els.settingTerminalExecutable.addEventListener("change", async () => {
@@ -617,8 +640,11 @@ els.settingTerminalExecutable.addEventListener("change", async () => {
       : await window.ccPanel.setTerminalExecutable(selected || null);
     if (result.config) cfg = result.config;
     refreshConfigButtons();
-    if (!result.ok && result.reason === "invalid_executable") {
-      showToast("请选择 EXE 文件");
+    if (!result.ok) {
+      if (result.reason === "invalid_executable") showToast("请选择 EXE 文件");
+      if (result.reason === "config_write_failed") {
+        showToast("终端设置未保存，请检查磁盘权限或文件占用");
+      }
     }
   } catch {
     showToast("无法选择终端程序");
@@ -637,9 +663,8 @@ els.settingAutoLaunch.addEventListener("change", async () => {
     refreshConfigButtons();
     return;
   }
-  cfg = await window.ccPanel.setConfig({ autoLaunch: els.settingAutoLaunch.checked });
-  refreshConfigButtons();
-  if (cfg.autoLaunchError) {
+  const saved = await saveSetting({ autoLaunch: els.settingAutoLaunch.checked });
+  if (saved && cfg.autoLaunchError) {
     showToast("开机自启动设置失败：" + cfg.autoLaunchError);
   }
 });

@@ -34,12 +34,24 @@ function load() {
 }
 
 function save(config) {
+  const tmp = path.join(DIR, `.config.${process.pid}.tmp`);
   try {
     fs.mkdirSync(DIR, { recursive: true });
-    const tmp = path.join(DIR, `.config.${process.pid}.tmp`);
     fs.writeFileSync(tmp, JSON.stringify(config, null, 2), "utf8");
     fs.renameSync(tmp, CONFIG_PATH);
-  } catch {}
+  } catch (err) {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {}
+    throw err;
+  }
 }
 
-module.exports = { load, save, DIR };
+function update(current, mutator) {
+  const next = { ...current };
+  mutator(next);
+  save(next);
+  return next;
+}
+
+module.exports = { load, save, update, DIR };
