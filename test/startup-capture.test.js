@@ -2,6 +2,16 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { capturedSessions } = require("../src/main/startup-capture");
 
+test("preserves Unicode working-directory names in captured sessions", () => {
+  const cwd = "C:\\项目\\中文文件夹\\codex";
+  const sessions = capturedSessions([
+    { pid: 10, ppid: 20, name: "codex.exe", commandLine: "codex", cwd },
+    { pid: 20, ppid: 0, name: "powershell.exe", commandLine: "powershell" },
+  ], [], 123);
+
+  assert.equal(sessions[0].cwd, cwd);
+});
+
 test("captures running Claude and Codex CLIs with their terminal mapping", () => {
   const sessions = capturedSessions([
     { pid: 9, ppid: 20, name: "node.exe", commandLine: "node C:\\node_modules\\@openai\\codex\\bin\\codex.js" },

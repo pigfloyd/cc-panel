@@ -4,6 +4,7 @@ const NOTIFY_STATES = new Set(["needs_input", "done", "error"]);
 const orderSessions = createStableSessionOrder();
 const { clientLabel, stateAgeLabel } = sessionMeta;
 const { normalizeLanguage, translate, applyDocument } = appI18n;
+const sound = statusSound.createStatusSound();
 const query = new URLSearchParams(window.location.search);
 const isDemoMode = query.get("demo") === "1";
 const IDLE_STACK_COLLAPSE_DELAY_MS = 3000;
@@ -99,24 +100,6 @@ function t(key, values) {
 
 function dateLocale() {
   return currentLanguage() === "en" ? "en-US" : "zh-CN";
-}
-
-let _audioCtx = null;
-function getAudioCtx() {
-  if (!_audioCtx || _audioCtx.state === "closed") _audioCtx = new AudioContext();
-  return _audioCtx;
-}
-
-function beep() {
-  const ctx = getAudioCtx();
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.connect(gain).connect(ctx.destination);
-  osc.frequency.value = 880;
-  gain.gain.setValueAtTime(0.08, ctx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
-  osc.start();
-  osc.stop(ctx.currentTime + 0.35);
 }
 
 function showToast(text) {
@@ -642,10 +625,11 @@ function applySnapshot(snapshot) {
   sessions = snapshot;
   render();
 
-  if (hasNotifiableChange && cfg.sound) beep();
+  if (hasNotifiableChange) sound.beep();
 }
 
 function refreshConfigButtons() {
+  sound.setEnabled(cfg.sound);
   els.btnSettings.classList.toggle("active", !els.settingsPanel.classList.contains("hidden"));
   els.settingAlwaysOnTop.checked = !!cfg.alwaysOnTop;
   els.settingSound.checked = !!cfg.sound;
@@ -918,12 +902,17 @@ els.settingAlwaysOnTop.addEventListener("change", async () => {
 });
 
 els.settingSound.addEventListener("change", async () => {
+  const previousSound = cfg.sound;
+  cfg.sound = els.settingSound.checked;
+  sound.setEnabled(cfg.sound);
   if (isDemoMode) {
-    cfg.sound = els.settingSound.checked;
     refreshConfigButtons();
     return;
   }
-  await saveSetting({ sound: els.settingSound.checked });
+  if (!await saveSetting({ sound: cfg.sound })) {
+    cfg.sound = previousSound;
+    refreshConfigButtons();
+  }
 });
 
 els.settingPromptSummary.addEventListener("change", async () => {

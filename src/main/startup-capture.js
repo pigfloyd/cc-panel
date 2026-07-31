@@ -1,5 +1,6 @@
 // Detect agent CLIs that were already running before cc-panel was opened.
 const { execFile } = require("child_process");
+const win32Snapshot = require("./win32-snapshot");
 
 const SHELL_NAMES = new Set(["cmd.exe", "powershell.exe", "pwsh.exe"]);
 const WINDOWS_TERMINAL_NAMES = new Set(["windowsterminal.exe", "windowsterminalpreview.exe"]);
@@ -117,7 +118,14 @@ function hasMatchingDescendant(pid, client, processes, candidateByPid) {
   return false;
 }
 
+// Fallback snapshotter, used only when the in-process koffi snapshot
+// (win32-snapshot.js) is unavailable.
 const SNAPSHOT_SCRIPT = `
+# PowerShell 5 uses the active console code page for redirected stdout. The
+# caller decodes stdout as UTF-8, so make the encoding explicit before emitting
+# JSON (otherwise Chinese working-directory names become mojibake).
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$OutputEncoding = [Console]::OutputEncoding
 Add-Type @"
 using System;
 using System.Text;
@@ -273,6 +281,24 @@ $callback = [CcPanelStartupCapture+EnumWindowsProc]{ param($hwnd, $lParam)
 
 function captureRunningSessions(store) {
   if (process.platform !== "win32") return Promise.resolve([]);
+
+  // Preferred path: koffi snapshot runs in-process (a few ms per poll instead
+  // of spawning PowerShell, recompiling the C# P/Invoke and querying WMI).
+  const snapshot = win32Snapshot.snapshot();
+  if (snapshot) {
+    try {
+      const sessions = capturedSessions(snapshot.processes, snapshot.windows);
+      for (const session of sessions) store.handleEvent(session);
+      return Promise.resolve(sessions);
+    } catch (error) {
+      console.error("[cc-panel] startup capture failed:", compactError(error.message));
+      return Promise.resolve([]);
+    }
+  }
+  return captureWithPowerShell(store);
+}
+
+function captureWithPowerShell(store) {
   return new Promise((resolve) => {
     execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", SNAPSHOT_SCRIPT], {
       timeout: 10000,
