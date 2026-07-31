@@ -197,20 +197,55 @@ input:focus-visible {
 }
 
 .card.shortcut-reveal {
-  animation: shortcut-reveal 1.4s ease-out;
+  animation: shortcut-reveal 560ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, border-color, box-shadow;
+}
+
+.card.shortcut-reveal .state-label {
+  animation: shortcut-reveal-label 460ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes shortcut-reveal {
-  0%,
-  35% {
+  0% {
+    border-color: var(--border);
+    box-shadow:
+      0 0 0 0 rgba(var(--state-rgb), 0),
+      var(--shadow-1);
+    transform: translateY(0) scale(1);
+  }
+  36% {
     border-color: var(--state);
     box-shadow:
-      0 0 0 3px rgba(var(--state-rgb), 0.3),
-      0 8px 22px rgba(var(--state-rgb), 0.2);
+      0 0 0 3px rgba(var(--state-rgb), 0.28),
+      0 10px 26px rgba(var(--state-rgb), 0.2);
+    transform: translateY(-4px) scale(1.035);
+  }
+  70% {
+    border-color: rgba(var(--state-rgb), 0.7);
+    box-shadow:
+      0 0 0 8px rgba(var(--state-rgb), 0),
+      0 4px 12px rgba(var(--state-rgb), 0.12);
+    transform: translateY(-1px) scale(0.997);
   }
   100% {
     border-color: var(--border);
-    box-shadow: var(--shadow-1);
+    box-shadow:
+      0 0 0 10px rgba(var(--state-rgb), 0),
+      var(--shadow-1);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes shortcut-reveal-label {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  42% {
+    transform: translateY(-1px) scale(1.08);
+  }
+  72% {
+    transform: translateY(0) scale(0.98);
   }
 }
 

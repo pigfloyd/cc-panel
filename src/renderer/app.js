@@ -9,6 +9,7 @@ const query = new URLSearchParams(window.location.search);
 const isDemoMode = query.get("demo") === "1";
 const IDLE_STACK_COLLAPSE_DELAY_MS = 3000;
 const WORKING_LIGHT_CYCLE_MS = 2400;
+const SHORTCUT_REVEAL_DURATION_MS = 560;
 document.body.classList.toggle("demo-mode", isDemoMode);
 
 const els = {
@@ -89,6 +90,7 @@ let onboardingPending = false;
 let onboardingPollTimer = null;
 let onboardingStatus = null;
 let revealSessionTimer = null;
+let revealedSessionCard = null;
 const BROWSE_TERMINAL_VALUE = "__browse__";
 
 function currentLanguage() {
@@ -374,35 +376,86 @@ function applyLanguage() {
   render();
 }
 
+function sessionCardKey(session) {
+  return String(session.cardKey || session.id);
+}
+
+function reconcileChildren(parent, desiredChildren) {
+  for (const [index, desired] of desiredChildren.entries()) {
+    const current = parent.children[index];
+    if (current !== desired) parent.insertBefore(desired, current || null);
+  }
+  while (parent.children.length > desiredChildren.length) {
+    parent.lastElementChild.remove();
+  }
+}
+
+function setText(element, value) {
+  const text = String(value ?? "");
+  if (element.textContent !== text) element.textContent = text;
+}
+
 function render() {
   const sorted = orderSessions(sessions);
   const idleSessions = sorted.filter((session) => session.state === "idle");
   const hasIdleStack = idleSessions.length > 1;
   const animateInitialCollapse = hasIdleStack && !idleStackInitialized;
-  let idleStack = null;
+  const focusedCardKey = document.activeElement?.classList?.contains("card")
+    ? document.activeElement.dataset.cardKey
+    : null;
+  const existingCards = new Map(
+    [...els.cards.querySelectorAll(".card")].map((card) => [card.dataset.cardKey, card]),
+  );
+  const cardsByKey = new Map();
+
+  for (const session of sorted) {
+    const key = sessionCardKey(session);
+    const card = existingCards.get(key) || buildCard();
+    updateCard(card, session);
+    if (!hasIdleStack || session.state !== "idle") clearIdleStackCardStyles(card);
+    cardsByKey.set(key, card);
+  }
+
+  let idleStack = [...els.cards.children]
+    .find((child) => child.classList.contains("idle-stack")) || null;
 
   if (hasIdleStack) {
     idleStackInitialized = true;
     if (animateInitialCollapse) idleStackExpanded = true;
+    if (!idleStack) idleStack = buildIdleStack();
+    updateIdleStack(
+      idleStack,
+      idleSessions,
+      idleSessions.map((session) => cardsByKey.get(sessionCardKey(session))),
+      idleStackExpanded,
+    );
   } else {
     clearIdleStackCollapseTimer();
     idleStackInitialized = false;
     idleStackExpanded = false;
   }
 
-  let cards;
-  if (hasIdleStack) {
-    idleStack = buildIdleStack(idleSessions, idleStackExpanded);
-    cards = [
+  const children = hasIdleStack
+    ? [
       idleStack,
-      ...sorted.filter((session) => session.state !== "idle").map(buildCard),
-    ];
-  } else {
-    cards = sorted.map(buildCard);
-  }
+      ...sorted
+        .filter((session) => session.state !== "idle")
+        .map((session) => cardsByKey.get(sessionCardKey(session))),
+    ]
+    : sorted.map((session) => cardsByKey.get(sessionCardKey(session)));
 
   refreshEmptyState();
-  els.cards.replaceChildren(...cards);
+  reconcileChildren(els.cards, children);
+
+  if (focusedCardKey) {
+    const focusedCard = cardsByKey.get(focusedCardKey);
+    if (focusedCard && document.activeElement !== focusedCard) {
+      focusedCard.focus({ preventScroll: true });
+    }
+  }
+  if (revealedSessionCard && !revealedSessionCard.isConnected) {
+    revealedSessionCard = null;
+  }
 
   if (animateInitialCollapse && idleStack) {
     // Commit the expanded geometry first so the initial automatic stack is animated.
@@ -412,13 +465,6 @@ function render() {
       if (idleStack.matches(":hover") || idleStack.contains(document.activeElement)) return;
       setIdleStackExpanded(false, idleStack);
     });
-  } else if (idleStack) {
-    // Snapshots rebuild the DOM; restore hover state if the pointer stayed over the new stack.
-    if (idleStack.matches(":hover") || idleStack.contains(document.activeElement)) {
-      setIdleStackExpanded(true, idleStack);
-    } else if (idleStackExpanded) {
-      scheduleIdleStackCollapse();
-    }
   }
 }
 
@@ -441,30 +487,17 @@ async function focusSession(s) {
   }
 }
 
-function buildCard(s) {
-  console.log(`[buildCard] id=${s.id}, state=${s.state}, client=${s.client}`);
+function buildCard() {
   const card = document.createElement("button");
   card.type = "button";
-  card.className = "card" + (s.hasWindow ? "" : " no-window");
-  card.dataset.state = s.state;
-  card.dataset.id = s.id;
-  if (s.state === "working" && Number.isFinite(Number(s.stateSince))) {
-    const stateAge = Math.max(0, Date.now() - Number(s.stateSince));
-    card.style.setProperty(
-      "--working-animation-delay",
-      `${-(stateAge % WORKING_LIGHT_CYCLE_MS)}ms`,
-    );
-  }
+  card.className = "card";
 
   const head = document.createElement("div");
   head.className = "head";
   const title = document.createElement("span");
   title.className = "card-title";
-  title.textContent = directoryName(s);
   const directoryPath = document.createElement("span");
   directoryPath.className = "directory-path";
-  directoryPath.textContent = s.cwd || "";
-  directoryPath.title = s.cwd || "";
   head.append(title, directoryPath);
 
   const meta = document.createElement("div");
@@ -472,16 +505,10 @@ function buildCard(s) {
 
   const stateLabel = document.createElement("span");
   stateLabel.className = "state-label";
-  const state = ["working", "needs_input", "done", "error", "idle"].includes(s.state) ? s.state : "idle";
-  stateLabel.textContent = t(`session.state.${state}`);
+  const stateLabelText = document.createElement("span");
+  stateLabelText.className = "state-label-text";
+  stateLabel.append(stateLabelText);
   meta.append(stateLabel);
-
-  if (!s.hasWindow) {
-    const tag = document.createElement("span");
-    tag.className = "no-win-tag";
-    tag.textContent = t("session.noWindow");
-    meta.append(tag);
-  }
 
   card.append(head);
   card.append(meta);
@@ -489,62 +516,97 @@ function buildCard(s) {
   const context = document.createElement("div");
   context.className = "session-context";
   const client = document.createElement("span");
-  client.textContent = clientLabel(s);
+  client.className = "client-label";
   const terminal = document.createElement("span");
   terminal.className = "terminal-number";
-  terminal.textContent = s.terminalPid
-    ? t("session.terminalNumber", { pid: s.terminalPid })
-    : t("session.terminalUnknown");
   const elapsed = document.createElement("span");
   elapsed.className = "state-age";
-  elapsed.dataset.state = s.state;
-  elapsed.dataset.since = String(s.stateSince);
-  elapsed.textContent = stateAgeLabel(s, Date.now(), currentLanguage());
-  elapsed.title = s.stateSince
-    ? t("session.stateSince", { time: new Date(s.stateSince).toLocaleString(dateLocale()) })
-    : "";
   context.append(client, createContextSeparator(), terminal, createContextSeparator(), elapsed);
   card.append(context);
 
-  const detailStr = detailText(s);
-  if (detailStr) {
-    const detail = document.createElement("div");
-    detail.className = "detail";
-    detail.textContent = detailStr;
-    detail.title = detailStr;
-    card.append(detail);
-  }
-
-  card.addEventListener("click", () => focusSession(s));
+  card.addEventListener("click", () => focusSession(card.sessionData));
 
   return card;
 }
 
-function buildIdleStack(idleSessions, expanded) {
+function updateCard(card, s) {
+  const previousState = card.dataset.state;
+  const previousStateSince = card.dataset.stateSince;
+  const nextStateSince = String(s.stateSince);
+  const state = ["working", "needs_input", "done", "error", "idle"].includes(s.state)
+    ? s.state
+    : "idle";
+  const key = sessionCardKey(s);
+  const id = String(s.id);
+
+  card.sessionData = s;
+  card.classList.toggle("no-window", !s.hasWindow);
+  if (card.dataset.cardKey !== key) card.dataset.cardKey = key;
+  if (previousState !== state) card.dataset.state = state;
+  if (previousStateSince !== nextStateSince) card.dataset.stateSince = nextStateSince;
+  if (card.dataset.id !== id) card.dataset.id = id;
+
+  if (state === "working" && Number.isFinite(Number(s.stateSince))) {
+    if (previousState !== state || previousStateSince !== nextStateSince) {
+      const stateAge = Math.max(0, Date.now() - Number(s.stateSince));
+      card.style.setProperty(
+        "--working-animation-delay",
+        `${-(stateAge % WORKING_LIGHT_CYCLE_MS)}ms`,
+      );
+    }
+  } else {
+    card.style.removeProperty("--working-animation-delay");
+  }
+
+  const title = card.querySelector(".card-title");
+  setText(title, directoryName(s));
+  const directoryPath = card.querySelector(".directory-path");
+  setText(directoryPath, s.cwd || "");
+  if (directoryPath.title !== (s.cwd || "")) directoryPath.title = s.cwd || "";
+
+  setText(card.querySelector(".state-label-text"), t(`session.state.${state}`));
+  const meta = card.querySelector(".meta");
+  let noWindowTag = meta.querySelector(".no-win-tag");
+  if (!s.hasWindow && !noWindowTag) {
+    noWindowTag = document.createElement("span");
+    noWindowTag.className = "no-win-tag";
+    meta.append(noWindowTag);
+  }
+  if (noWindowTag) {
+    setText(noWindowTag, t("session.noWindow"));
+    if (s.hasWindow) noWindowTag.remove();
+  }
+
+  setText(card.querySelector(".client-label"), clientLabel(s));
+  setText(card.querySelector(".terminal-number"), s.terminalPid
+    ? t("session.terminalNumber", { pid: s.terminalPid })
+    : t("session.terminalUnknown"));
+  const elapsed = card.querySelector(".state-age");
+  if (elapsed.dataset.state !== state) elapsed.dataset.state = state;
+  if (elapsed.dataset.since !== nextStateSince) elapsed.dataset.since = nextStateSince;
+  setText(elapsed, stateAgeLabel(s, Date.now(), currentLanguage()));
+  const elapsedTitle = s.stateSince
+    ? t("session.stateSince", { time: new Date(s.stateSince).toLocaleString(dateLocale()) })
+    : "";
+  if (elapsed.title !== elapsedTitle) elapsed.title = elapsedTitle;
+
+  const detailStr = detailText(s);
+  let detail = card.querySelector(".detail");
+  if (detailStr && !detail) {
+    detail = document.createElement("div");
+    detail.className = "detail";
+    card.append(detail);
+  }
+  if (detail) {
+    setText(detail, detailStr);
+    if (detail.title !== detailStr) detail.title = detailStr;
+    if (!detailStr) detail.remove();
+  }
+}
+
+function buildIdleStack() {
   const stack = document.createElement("section");
-  const visibleDepth = Math.min(idleSessions.length - 1, 3);
   stack.className = "idle-stack";
-  stack.setAttribute("aria-label", t("session.idleCount", { count: idleSessions.length }));
-  stack.style.setProperty("--stack-collapsed-height", `${88 + visibleDepth * 6}px`);
-  stack.style.setProperty("--stack-expanded-height", `${idleSessions.length * 96 - 8}px`);
-
-  const cards = idleSessions.map((session, index) => {
-    const card = buildCard(session);
-    const depth = Math.min(index, 3);
-    card.style.setProperty("--stack-collapsed-top", `${depth * 6}px`);
-    card.style.setProperty("--stack-collapsed-inset", `${depth * 4}px`);
-    card.style.setProperty("--stack-expanded-top", `${index * 96}px`);
-    card.style.zIndex = String(idleSessions.length - index);
-    return card;
-  });
-
-  const count = document.createElement("span");
-  count.className = "idle-stack-count";
-  count.textContent = String(idleSessions.length);
-  count.title = t("session.idleCount", { count: idleSessions.length });
-  cards[0].querySelector(".state-label").append(count);
-  stack.append(...cards);
-  updateIdleStackElement(stack, expanded);
 
   stack.addEventListener("mouseenter", () => {
     clearIdleStackCollapseTimer();
@@ -560,6 +622,41 @@ function buildIdleStack(idleSessions, expanded) {
   });
 
   return stack;
+}
+
+function updateIdleStack(stack, idleSessions, cards, expanded) {
+  const visibleDepth = Math.min(idleSessions.length - 1, 3);
+  const idleCountLabel = t("session.idleCount", { count: idleSessions.length });
+  stack.setAttribute("aria-label", idleCountLabel);
+  stack.style.setProperty("--stack-collapsed-height", `${88 + visibleDepth * 6}px`);
+  stack.style.setProperty("--stack-expanded-height", `${idleSessions.length * 96 - 8}px`);
+
+  cards.forEach((card, index) => {
+    const depth = Math.min(index, 3);
+    card.style.setProperty("--stack-collapsed-top", `${depth * 6}px`);
+    card.style.setProperty("--stack-collapsed-inset", `${depth * 4}px`);
+    card.style.setProperty("--stack-expanded-top", `${index * 96}px`);
+    card.style.zIndex = String(idleSessions.length - index);
+  });
+
+  let count = stack.querySelector(".idle-stack-count");
+  if (!count) {
+    count = document.createElement("span");
+    count.className = "idle-stack-count";
+  }
+  setText(count, idleSessions.length);
+  if (count.title !== idleCountLabel) count.title = idleCountLabel;
+  cards[0].querySelector(".state-label").append(count);
+
+  reconcileChildren(stack, cards);
+  updateIdleStackElement(stack, expanded);
+}
+
+function clearIdleStackCardStyles(card) {
+  card.style.removeProperty("--stack-collapsed-top");
+  card.style.removeProperty("--stack-collapsed-inset");
+  card.style.removeProperty("--stack-expanded-top");
+  card.style.removeProperty("z-index");
 }
 
 function updateIdleStackElement(stack, expanded) {
@@ -636,16 +733,25 @@ function revealSession({ id, reason } = {}) {
 
   card.scrollIntoView({ behavior: "smooth", block: "center" });
   card.focus({ preventScroll: true });
+  if (revealedSessionCard && revealedSessionCard !== card) {
+    revealedSessionCard.classList.remove("shortcut-reveal");
+  }
   card.classList.remove("shortcut-reveal");
   void card.offsetWidth;
   card.classList.add("shortcut-reveal");
+  revealedSessionCard = card;
   clearTimeout(revealSessionTimer);
-  revealSessionTimer = setTimeout(() => card.classList.remove("shortcut-reveal"), 1400);
+  revealSessionTimer = setTimeout(() => {
+    card.classList.remove("shortcut-reveal");
+    if (revealedSessionCard === card) revealedSessionCard = null;
+  }, SHORTCUT_REVEAL_DURATION_MS);
 
-  const message = reason === "gone"
-    ? t("session.windowClosed")
-    : reason === "no_hwnd" ? t("session.windowMissing") : t("session.focusFailed");
-  showToast(message);
+  if (reason) {
+    const message = reason === "gone"
+      ? t("session.windowClosed")
+      : reason === "no_hwnd" ? t("session.windowMissing") : t("session.focusFailed");
+    showToast(message);
+  }
 }
 
 function refreshConfigButtons() {

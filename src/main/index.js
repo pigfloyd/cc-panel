@@ -175,7 +175,12 @@ function focusNextAttentionSession() {
     screen.getPrimaryDisplay().workArea,
     { reposition: false },
   );
-  if (!result.ok) revealSessionInPanel(target.id, result.reason);
+  if (!result.ok) {
+    revealSessionInPanel(target.id, result.reason);
+    return;
+  }
+
+  notifySessionCard(target.id);
 }
 
 function revealSessionInPanel(id, reason) {
@@ -184,6 +189,11 @@ function revealSessionInPanel(id, reason) {
   win.show();
   win.focus();
 
+  notifySessionCard(id, reason);
+}
+
+function notifySessionCard(id, reason) {
+  if (!win || win.isDestroyed()) return;
   const send = () => {
     if (win && !win.isDestroyed()) win.webContents.send("reveal-session", { id, reason });
   };
