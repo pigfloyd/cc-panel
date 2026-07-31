@@ -65,7 +65,7 @@ let onboardingTestEvent = { ok: false };
 
 const TERMINAL_COMMANDS = new Set(["codex", "claude"]);
 const MINIMIZE_ALL_SHORTCUT = "Alt+Z";
-const ATTENTION_SHORTCUT = "Alt+X";
+const ATTENTION_SHORTCUT = "Alt+C";
 const SESSION_CAPTURE_INTERVAL_MS = 5000;
 const HOOK_HEALTH_INTERVAL_MS = 5000;
 const APP_ICON_PATH = path.join(

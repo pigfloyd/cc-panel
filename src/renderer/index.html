@@ -99,8 +99,19 @@
         <option value="" data-i18n="settings.scanning">正在扫描...</option>
       </select>
     </div>
-    <div class="hook-status-group" aria-label="Hook 诊断" data-i18n-aria-label="hook.diagnostics">
-      <div class="setting-section-label" data-i18n="hook.diagnostics">Hook 诊断</div>
+    <section class="shortcut-settings" aria-labelledby="shortcut-settings-title">
+      <h2 id="shortcut-settings-title" class="setting-section-label" data-i18n="settings.shortcuts">快捷键</h2>
+      <div class="shortcut-row">
+        <span data-i18n="settings.shortcutMinimize">收起所有终端窗口</span>
+        <kbd>Alt + Z</kbd>
+      </div>
+      <div class="shortcut-row">
+        <span data-i18n="settings.shortcutAttention">弹起需关注终端</span>
+        <kbd>Alt + C</kbd>
+      </div>
+    </section>
+    <details class="hook-status-group" aria-label="Hook 诊断" data-i18n-aria-label="hook.diagnostics">
+      <summary class="setting-section-label" data-i18n="hook.diagnostics">Hook 诊断</summary>
       <div class="hook-status-row">
         <span data-i18n="hook.lastEvent">最近事件</span>
         <span id="hook-last-event" class="hook-status-value" data-i18n="hook.neverReceived">尚未收到</span>
@@ -140,7 +151,7 @@
           <button id="btn-check-codex-trust" type="button" data-i18n="hook.checkAfterTrust">完成后检测</button>
         </div>
       </div>
-    </div>
+    </details>
   </section>
   <div id="toast" class="toast hidden"></div>
   <script src="i18n.js"></script>

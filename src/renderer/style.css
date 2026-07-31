@@ -964,11 +964,63 @@ input:focus-visible {
   border-top: 1px solid var(--border);
 }
 
+.hook-status-group > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.hook-status-group > summary::marker {
+  color: var(--text-dim);
+  font-size: 9px;
+}
+
+.hook-status-group > summary:hover {
+  color: var(--text-dim);
+}
+
 .setting-section-label {
   padding: 5px 8px 3px;
   color: var(--text-mute);
   font-size: 10px;
   font-weight: 650;
+}
+
+.shortcut-settings {
+  border-top: 1px solid var(--border);
+}
+
+.shortcut-settings .setting-section-label {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.shortcut-row {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 8px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.shortcut-row kbd {
+  min-width: 58px;
+  padding: 3px 6px;
+  color: var(--text-dim);
+  background: var(--panel-muted);
+  border: 1px solid var(--border);
+  border-bottom-color: #b6bec8;
+  border-radius: 4px;
+  box-shadow: 0 1px 0 rgba(19, 28, 39, 0.08);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .hook-status-row {

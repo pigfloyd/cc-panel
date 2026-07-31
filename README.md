@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./src/assets/app-icon.png" alt="cc-panel logo" width="180">
+</p>
+
 # cc-panel
 
 [English](./README_EN.md)
@@ -60,7 +64,7 @@ npm run demo
 - 点击底部的 `Claude Code` 或 `Codex CLI` 按钮并选择工作目录，可新建会话。
 - 将鼠标悬停在启动按钮上，可从最近使用的目录中快速启动。
 - 点击底部的设置按钮，可调整窗口置顶、提示音、开机自启动和终端程序。
-- 按 `Alt+X`，可按待输入、异常、已完成的优先级切换终端；连续按下会在这些终端之间循环。
+- 按 `Alt+C`，可按待输入、异常、已完成的优先级切换终端；连续按下会在这些终端之间循环。
 - 点击底部的收起按钮，或按 `Alt+Z`，可最小化所有已识别的终端窗口。
 
 ## 配置与 hooks

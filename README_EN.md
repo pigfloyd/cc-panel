@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./src/assets/app-icon.png" alt="cc-panel logo" width="180">
+</p>
+
 # cc-panel
 
 [中文](./README.md)
@@ -60,7 +64,7 @@ Demo mode does not start the local event service, install hooks, read real sessi
 - Click the `Claude Code` or `Codex CLI` button at the bottom, then choose a working directory, to create a session.
 - Hover over a launch button to quickly start from a recently used directory.
 - Click the settings button at the bottom to configure always-on-top, sounds, startup, and terminal applications.
-- Press `Alt+X` to focus terminals in input-required, error, then completed priority; press it repeatedly to cycle through them.
+- Press `Alt+C` to focus terminals in input-required, error, then completed priority; press it repeatedly to cycle through them.
 - Click the minimize button at the bottom, or press `Alt+Z`, to minimize all detected terminal windows.
 
 ## Configuration and Hooks
