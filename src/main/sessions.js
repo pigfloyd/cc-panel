@@ -28,12 +28,15 @@ const TRANSCRIPT_POLL_MS = 1000;
 const MAX_TRANSCRIPT_READ_BYTES = 256 * 1024;
 const SESSION_IDENTITY_EVENTS = new Set(["SessionStart", "UserPromptSubmit"]);
 const SESSION_RESET_SOURCES = new Set(["clear", "new"]);
+const ATTENTION_STATES = new Set(["needs_input", "error", "done"]);
+const ATTENTION_STATE_PRIORITY = { needs_input: 0, error: 1, done: 2 };
 
 class SessionStore {
   constructor(onUpdate) {
     this.sessions = new Map();
     this.sessionAliases = new Map();
     this.nextCardKey = 1;
+    this.attentionCursorKey = null;
     this.onUpdate = onUpdate || (() => {});
     this._pollTimer = setInterval(() => this._poll(), POLL_MS);
     this._transcriptTimer = setInterval(() => this._pollTranscripts(), TRANSCRIPT_POLL_MS);
@@ -188,16 +191,44 @@ class SessionStore {
     this._emit();
   }
 
-  focus(id, workArea) {
+  focus(id, workArea, options) {
     const s = this.sessions.get(id);
     if (!s) return { ok: false, reason: "unknown_session" };
     if (!s.wt_hwnd) return { ok: false, reason: "no_hwnd" };
-    const result = win32.focusWindow(s.wt_hwnd, workArea);
+    const result = win32.focusWindow(s.wt_hwnd, workArea, options);
     if (result.reason === "gone") {
       s.windowAlive = false;
       this._emit();
     }
     return result;
+  }
+
+  nextAttentionSession() {
+    const ordered = [...this.sessions.values()]
+      .filter((session) => ATTENTION_STATES.has(session.state))
+      .sort(compareAttentionSessions);
+    const candidates = [];
+    const seenTargets = new Set();
+
+    for (const session of ordered) {
+      const targetKey = attentionTargetKey(session);
+      if (seenTargets.has(targetKey)) continue;
+      seenTargets.add(targetKey);
+      candidates.push({ session, targetKey });
+    }
+
+    if (!candidates.length) {
+      this.attentionCursorKey = null;
+      return null;
+    }
+
+    const currentIndex = candidates.findIndex(({ targetKey }) => (
+      targetKey === this.attentionCursorKey
+    ));
+    const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % candidates.length;
+    const next = candidates[nextIndex];
+    this.attentionCursorKey = next.targetKey;
+    return sessionSnapshot(next.session);
   }
 
   minimizeAll() {
@@ -510,25 +541,40 @@ class SessionStore {
   }
 
   snapshot() {
-    return [...this.sessions.values()].map((s) => ({
-      id: s.id,
-      cardKey: s.cardKey,
-      project: s.project || "(unknown)",
-      cwd: s.cwd,
-      client: s.client,
-      state: s.state,
-      stateSince: s.stateSince,
-      currentTool: s.currentTool,
-      lastPrompt: s.lastPrompt,
-      message: s.message,
-      terminalPid: s.terminal_pid,
-      hasWindow: !!s.wt_hwnd && s.windowAlive !== false,
-    }));
+    return [...this.sessions.values()].map(sessionSnapshot);
   }
 
   _emit() {
     this.onUpdate(this.snapshot());
   }
+}
+
+function compareAttentionSessions(left, right) {
+  const priority = ATTENTION_STATE_PRIORITY[left.state] - ATTENTION_STATE_PRIORITY[right.state];
+  if (priority !== 0) return priority;
+  return Number(left.stateSince || 0) - Number(right.stateSince || 0);
+}
+
+function attentionTargetKey(session) {
+  if (session.wt_hwnd && session.windowAlive !== false) return `window:${session.wt_hwnd}`;
+  return `session:${session.cardKey || session.id}`;
+}
+
+function sessionSnapshot(s) {
+  return {
+    id: s.id,
+    cardKey: s.cardKey,
+    project: s.project || "(unknown)",
+    cwd: s.cwd,
+    client: s.client,
+    state: s.state,
+    stateSince: s.stateSince,
+    currentTool: s.currentTool,
+    lastPrompt: s.lastPrompt,
+    message: s.message,
+    terminalPid: s.terminal_pid,
+    hasWindow: !!s.wt_hwnd && s.windowAlive !== false,
+  };
 }
 
 function pidAlive(pid) {

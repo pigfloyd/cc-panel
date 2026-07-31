@@ -196,6 +196,24 @@ input:focus-visible {
   outline-color: var(--state);
 }
 
+.card.shortcut-reveal {
+  animation: shortcut-reveal 1.4s ease-out;
+}
+
+@keyframes shortcut-reveal {
+  0%,
+  35% {
+    border-color: var(--state);
+    box-shadow:
+      0 0 0 3px rgba(var(--state-rgb), 0.3),
+      0 8px 22px rgba(var(--state-rgb), 0.2);
+  }
+  100% {
+    border-color: var(--border);
+    box-shadow: var(--shadow-1);
+  }
+}
+
 .card.no-window {
   cursor: default;
   opacity: 0.72;

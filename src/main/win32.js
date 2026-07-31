@@ -42,13 +42,13 @@ function isWindowAlive(hwndStr) {
   }
 }
 
-// Move the window to the center of `workArea` (Electron primary display work
-// area) keeping its size, then bring it to the foreground. Returns
-// {ok, reason?}.
-function focusWindow(hwndStr, workArea) {
+// Bring the window to the foreground. By default it is centered in `workArea`
+// while keeping its size; pass { reposition: false } to preserve its position.
+// Returns {ok, reason?}.
+function focusWindow(hwndStr, workArea, options = {}) {
   if (!hwndStr) return { ok: false, reason: "no_hwnd" };
-  if (fns) return focusWithKoffi(Number(hwndStr), workArea);
-  return focusWithPowerShell(hwndStr, workArea);
+  if (fns) return focusWithKoffi(Number(hwndStr), workArea, options);
+  return focusWithPowerShell(hwndStr, workArea, options);
 }
 
 function minimizeWindow(hwndStr) {
@@ -62,21 +62,23 @@ function minimizeWindow(hwndStr) {
   return minimizeWithPowerShell(hwndStr);
 }
 
-function focusWithKoffi(hwnd, workArea) {
+function focusWithKoffi(hwnd, workArea, options = {}) {
   if (!fns.IsWindow(hwnd)) return { ok: false, reason: "gone" };
   if (fns.IsIconic(hwnd)) fns.ShowWindow(hwnd, SW_RESTORE);
 
-  const rect = {};
-  let w = 1200, h = 800;
-  if (fns.GetWindowRect(hwnd, rect)) {
-    w = rect.right - rect.left;
-    h = rect.bottom - rect.top;
+  if (options.reposition !== false) {
+    const rect = {};
+    let w = 1200, h = 800;
+    if (fns.GetWindowRect(hwnd, rect)) {
+      w = rect.right - rect.left;
+      h = rect.bottom - rect.top;
+    }
+    w = Math.min(w, workArea.width);
+    h = Math.min(h, workArea.height);
+    const x = Math.round(workArea.x + (workArea.width - w) / 2);
+    const y = Math.round(workArea.y + (workArea.height - h) / 2);
+    fns.SetWindowPos(hwnd, 0 /* HWND_TOP */, x, y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
   }
-  w = Math.min(w, workArea.width);
-  h = Math.min(h, workArea.height);
-  const x = Math.round(workArea.x + (workArea.width - w) / 2);
-  const y = Math.round(workArea.y + (workArea.height - h) / 2);
-  fns.SetWindowPos(hwnd, 0 /* HWND_TOP */, x, y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
 
   if (!fns.SetForegroundWindow(hwnd)) {
     // Foreground-lock workaround: a synthetic ALT press makes Windows treat
@@ -115,13 +117,35 @@ $x = __WAX__ + [int](( __WAW__ - $w) / 2); $y = __WAY__ + [int](( __WAH__ - $hh)
 "ok"
 `;
 
-function focusWithPowerShell(hwndStr, workArea) {
-  const script = PS_FOCUS_TEMPLATE
-    .replace(/__HWND__/g, String(Number(hwndStr)))
-    .replace(/__WAX__/g, String(workArea.x))
-    .replace(/__WAY__/g, String(workArea.y))
-    .replace(/__WAW__/g, String(workArea.width))
-    .replace(/__WAH__/g, String(workArea.height));
+const PS_FOCUS_ONLY_TEMPLATE = `
+$typeDef = @"
+using System;
+using System.Runtime.InteropServices;
+public class TpanelFocus {
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+}
+"@
+Add-Type -TypeDefinition $typeDef
+$h = [IntPtr]::new(__HWND__)
+if (-not [TpanelFocus]::IsWindow($h)) { "gone"; exit }
+if ([TpanelFocus]::IsIconic($h)) { [void][TpanelFocus]::ShowWindow($h, 9) }
+[void][TpanelFocus]::SetForegroundWindow($h)
+"ok"
+`;
+
+function focusWithPowerShell(hwndStr, workArea, options = {}) {
+  let script = (options.reposition === false ? PS_FOCUS_ONLY_TEMPLATE : PS_FOCUS_TEMPLATE)
+    .replace(/__HWND__/g, String(Number(hwndStr)));
+  if (options.reposition !== false) {
+    script = script
+      .replace(/__WAX__/g, String(workArea.x))
+      .replace(/__WAY__/g, String(workArea.y))
+      .replace(/__WAW__/g, String(workArea.width))
+      .replace(/__WAH__/g, String(workArea.height));
+  }
   execFile(
     "powershell.exe",
     ["-NoProfile", "-NonInteractive", "-Command", script],

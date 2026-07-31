@@ -64,7 +64,8 @@ let detectedClients = { claude: false, codex: false };
 let onboardingTestEvent = { ok: false };
 
 const TERMINAL_COMMANDS = new Set(["codex", "claude"]);
-const MINIMIZE_ALL_SHORTCUT = "CommandOrControl+Shift+Z";
+const MINIMIZE_ALL_SHORTCUT = "Alt+Z";
+const ATTENTION_SHORTCUT = "Alt+X";
 const SESSION_CAPTURE_INTERVAL_MS = 5000;
 const HOOK_HEALTH_INTERVAL_MS = 5000;
 const APP_ICON_PATH = path.join(
@@ -146,12 +147,48 @@ async function main() {
 }
 
 function registerShortcuts() {
-  const registered = globalShortcut.register(MINIMIZE_ALL_SHORTCUT, () => {
+  registerShortcut(MINIMIZE_ALL_SHORTCUT, () => {
     if (store) store.minimizeAll();
   });
+  registerShortcut(ATTENTION_SHORTCUT, focusNextAttentionSession);
+}
+
+function registerShortcut(accelerator, callback) {
+  const registered = globalShortcut.register(accelerator, callback);
   if (!registered) {
-    console.error(`[cc-panel] shortcut unavailable: ${MINIMIZE_ALL_SHORTCUT}`);
+    console.error(`[cc-panel] shortcut unavailable: ${accelerator}`);
   }
+}
+
+function focusNextAttentionSession() {
+  if (!store) return;
+  const target = store.nextAttentionSession();
+  if (!target) return;
+
+  if (!target.hasWindow) {
+    revealSessionInPanel(target.id, "no_hwnd");
+    return;
+  }
+
+  const result = store.focus(
+    target.id,
+    screen.getPrimaryDisplay().workArea,
+    { reposition: false },
+  );
+  if (!result.ok) revealSessionInPanel(target.id, result.reason);
+}
+
+function revealSessionInPanel(id, reason) {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+
+  const send = () => {
+    if (win && !win.isDestroyed()) win.webContents.send("reveal-session", { id, reason });
+  };
+  if (win.webContents.isLoadingMainFrame()) win.webContents.once("did-finish-load", send);
+  else send();
 }
 
 app.on("will-quit", () => globalShortcut.unregisterAll());

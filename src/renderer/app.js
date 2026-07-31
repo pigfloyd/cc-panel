@@ -88,6 +88,7 @@ let hookOperationPending = false;
 let onboardingPending = false;
 let onboardingPollTimer = null;
 let onboardingStatus = null;
+let revealSessionTimer = null;
 const BROWSE_TERMINAL_VALUE = "__browse__";
 
 function currentLanguage() {
@@ -628,6 +629,25 @@ function applySnapshot(snapshot) {
   if (hasNotifiableChange) sound.beep();
 }
 
+function revealSession({ id, reason } = {}) {
+  const card = [...els.cards.querySelectorAll(".card")]
+    .find((candidate) => candidate.dataset.id === id);
+  if (!card) return;
+
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  card.focus({ preventScroll: true });
+  card.classList.remove("shortcut-reveal");
+  void card.offsetWidth;
+  card.classList.add("shortcut-reveal");
+  clearTimeout(revealSessionTimer);
+  revealSessionTimer = setTimeout(() => card.classList.remove("shortcut-reveal"), 1400);
+
+  const message = reason === "gone"
+    ? t("session.windowClosed")
+    : reason === "no_hwnd" ? t("session.windowMissing") : t("session.focusFailed");
+  showToast(message);
+}
+
 function refreshConfigButtons() {
   sound.setEnabled(cfg.sound);
   els.btnSettings.classList.toggle("active", !els.settingsPanel.classList.contains("hidden"));
@@ -1021,7 +1041,10 @@ document.addEventListener("keydown", (event) => {
     setSettingsOpen(false);
   }
 });
-if (!isDemoMode) window.ccPanel.onSessions(applySnapshot);
+if (!isDemoMode) {
+  window.ccPanel.onSessions(applySnapshot);
+  window.ccPanel.onRevealSession(revealSession);
+}
 setInterval(() => refreshStateAges(), 1000);
 
 (async function init() {

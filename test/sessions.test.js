@@ -1324,3 +1324,125 @@ test("minimizes each tracked terminal window once", () => {
     win32.minimizeWindow = realMinimizeWindow;
   }
 });
+
+test("cycles attention sessions by input, error, then completed priority", () => {
+  const store = new SessionStore();
+  store.dispose();
+
+  store.handleEvent({
+    session_id: "working",
+    event: "UserPromptSubmit",
+    wt_hwnd: "100",
+    ts: 50,
+  });
+  store.handleEvent({
+    session_id: "error",
+    event: "StopFailure",
+    wt_hwnd: "101",
+    ts: 100,
+  });
+  store.handleEvent({
+    session_id: "waiting-older",
+    event: "PermissionRequest",
+    wt_hwnd: "102",
+    ts: 200,
+  });
+  store.handleEvent({
+    session_id: "waiting-newer",
+    event: "PermissionRequest",
+    wt_hwnd: "103",
+    ts: 300,
+  });
+  store.handleEvent({
+    session_id: "completed",
+    event: "Stop",
+    wt_hwnd: "104",
+    ts: 400,
+  });
+
+  assert.equal(store.nextAttentionSession().id, "waiting-older");
+  assert.equal(store.nextAttentionSession().id, "waiting-newer");
+  assert.equal(store.nextAttentionSession().id, "error");
+  assert.equal(store.nextAttentionSession().id, "completed");
+  assert.equal(store.nextAttentionSession().id, "waiting-older");
+});
+
+test("deduplicates shared terminal windows and includes sessions without windows", () => {
+  const store = new SessionStore();
+  store.dispose();
+
+  store.handleEvent({
+    session_id: "shared-older",
+    event: "PermissionRequest",
+    wt_hwnd: "201",
+    ts: 100,
+  });
+  store.handleEvent({
+    session_id: "shared-newer",
+    event: "PermissionRequest",
+    wt_hwnd: "201",
+    ts: 200,
+  });
+  store.handleEvent({
+    session_id: "windowless-error",
+    event: "StopFailure",
+    ts: 300,
+  });
+
+  assert.equal(store.nextAttentionSession().id, "shared-older");
+  const windowless = store.nextAttentionSession();
+  assert.equal(windowless.id, "windowless-error");
+  assert.equal(windowless.hasWindow, false);
+  assert.equal(store.nextAttentionSession().id, "shared-older");
+});
+
+test("clears the attention cursor when no actionable sessions remain", () => {
+  const store = new SessionStore();
+  store.dispose();
+
+  store.handleEvent({
+    session_id: "waiting",
+    event: "PermissionRequest",
+    wt_hwnd: "301",
+    ts: 100,
+  });
+  assert.equal(store.nextAttentionSession().id, "waiting");
+
+  store.handleEvent({
+    session_id: "waiting",
+    event: "UserPromptSubmit",
+    ts: 200,
+  });
+  assert.equal(store.nextAttentionSession(), null);
+
+  store.handleEvent({
+    session_id: "error",
+    event: "StopFailure",
+    wt_hwnd: "302",
+    ts: 300,
+  });
+  assert.equal(store.nextAttentionSession().id, "error");
+});
+
+test("forwards focus options to the window activator", () => {
+  const store = new SessionStore();
+  store.dispose();
+  const win32 = require("../src/main/win32");
+  const realFocusWindow = win32.focusWindow;
+  let focused = null;
+  win32.focusWindow = (...args) => {
+    focused = args;
+    return { ok: true };
+  };
+
+  try {
+    store.handleEvent({ session_id: "waiting", event: "PermissionRequest", wt_hwnd: "401" });
+    const workArea = { x: 0, y: 0, width: 1920, height: 1080 };
+    const options = { reposition: false };
+
+    assert.deepEqual(store.focus("waiting", workArea, options), { ok: true });
+    assert.deepEqual(focused, ["401", workArea, options]);
+  } finally {
+    win32.focusWindow = realFocusWindow;
+  }
+});
