@@ -111,7 +111,6 @@ test("maps Claude notifications without treating informational events as input r
     ["elicitation_dialog", "needs_input", "Complete the form"],
     ["agent_needs_input", "needs_input", "Background session needs input"],
     ["idle_prompt", "done", null],
-    ["agent_completed", "done", null],
     ["elicitation_complete", "working", null],
     ["elicitation_response", "working", null],
   ];
@@ -138,7 +137,7 @@ test("ignores authentication, unknown, and untyped notifications", () => {
   const store = new SessionStore();
   store.dispose();
 
-  for (const notificationType of ["auth_success", "future_notification", undefined]) {
+  for (const notificationType of ["auth_success", "agent_completed", "future_notification", undefined]) {
     store.handleEvent({
       session_id: "claude:notification-ignore",
       event: "Notification",
@@ -172,6 +171,29 @@ test("ignores authentication, unknown, and untyped notifications", () => {
 
   assert.equal(store.snapshot()[0].state, "done");
   assert.equal(store.snapshot()[0].stateSince, 200);
+});
+
+test("does not complete an active Claude turn when a background agent finishes", () => {
+  const store = new SessionStore();
+  store.dispose();
+
+  store.handleEvent({
+    session_id: "claude:background-agent",
+    event: "UserPromptSubmit",
+    client: "claude",
+    ts: 100,
+  });
+  store.handleEvent({
+    session_id: "claude:background-agent",
+    event: "Notification",
+    client: "claude",
+    notification_type: "agent_completed",
+    ts: 200,
+  });
+
+  const [session] = store.snapshot();
+  assert.equal(session.state, "working");
+  assert.equal(session.stateSince, 100);
 });
 
 test("ignores a delayed async prompt hook after the turn has stopped", () => {

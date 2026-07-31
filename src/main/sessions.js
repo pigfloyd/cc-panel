@@ -19,7 +19,6 @@ const NOTIFICATION_STATE = {
   elicitation_dialog: "needs_input",
   agent_needs_input: "needs_input",
   idle_prompt: "done",
-  agent_completed: "done",
   elicitation_complete: "working",
   elicitation_response: "working",
 };
@@ -52,8 +51,8 @@ class SessionStore {
     const notificationState = body.event === "Notification"
       ? NOTIFICATION_STATE[String(body.notification_type || "").toLowerCase()]
       : null;
-    // Notifications such as auth_success are informational and must not
-    // create a session or overwrite a lifecycle-derived state.
+    // Authentication and background-agent completion notifications are
+    // informational and must not overwrite the main session lifecycle.
     if (body.event === "Notification" && !notificationState) return;
 
     // Process discovery runs repeatedly as a fallback for missing hooks. If a
