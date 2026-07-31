@@ -427,14 +427,23 @@ test("marks a Codex escalated command as waiting for approval until answered", (
 
       store.handleEvent({
         session_id: "codex:approval",
+        event: "PostToolUse",
+        client: "codex",
+        tool_name: "unrelated_tool",
+        ts: Date.parse("2026-07-29T05:46:04.941Z"),
+      });
+      assert.equal(store.snapshot()[0].state, "needs_input");
+
+      store.handleEvent({
+        session_id: "codex:approval",
         event: "PreToolUse",
         client: "codex",
         tool_name: "shell_command",
         ts: Date.parse("2026-07-29T05:46:05.441Z"),
       });
-      assert.equal(store.snapshot()[0].state, "working");
+      assert.equal(store.snapshot()[0].state, "needs_input");
       store._pollTranscripts();
-      assert.equal(store.snapshot()[0].state, "working");
+      assert.equal(store.snapshot()[0].state, "needs_input");
 
       fs.appendFileSync(transcript, `${JSON.stringify({
         timestamp: "2026-07-29T05:46:06.441Z",
@@ -493,6 +502,18 @@ test("marks a Codex escalated command as waiting for approval until answered", (
         ts: Date.parse("2026-07-29T05:46:10.441Z"),
       });
       store._pollTranscripts();
+      assert.equal(store.snapshot()[0].state, "needs_input");
+
+      fs.appendFileSync(transcript, `${JSON.stringify({
+        timestamp: "2026-07-29T05:46:11.441Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call_output",
+          call_id: fastApprovalCallId,
+          output: "Exit code: 0",
+        },
+      })}\n`);
+      store._pollTranscripts();
       assert.equal(store.snapshot()[0].state, "working");
     } finally {
       store.dispose();
@@ -502,7 +523,7 @@ test("marks a Codex escalated command as waiting for approval until answered", (
   }
 });
 
-test("keeps waiting when only one of multiple Codex approvals starts", () => {
+test("keeps waiting until all Codex approvals are answered", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-panel-multi-approval-"));
   const transcript = path.join(tempDir, "codex.jsonl");
 
@@ -553,6 +574,30 @@ test("keeps waiting when only one of multiple Codex approvals starts", () => {
         tool_name: "shell_command",
         ts: Date.parse("2026-07-29T06:00:03.000Z"),
       });
+      assert.equal(store.snapshot()[0].state, "needs_input");
+
+      fs.appendFileSync(transcript, `${JSON.stringify({
+        timestamp: "2026-07-29T06:00:04.000Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call_output",
+          call_id: "call_approval_a",
+          output: "Exit code: 0",
+        },
+      })}\n`);
+      store._pollTranscripts();
+      assert.equal(store.snapshot()[0].state, "needs_input");
+
+      fs.appendFileSync(transcript, `${JSON.stringify({
+        timestamp: "2026-07-29T06:00:05.000Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call_output",
+          call_id: "call_approval_b",
+          output: "Denied by user",
+        },
+      })}\n`);
+      store._pollTranscripts();
       assert.equal(store.snapshot()[0].state, "working");
     } finally {
       store.dispose();

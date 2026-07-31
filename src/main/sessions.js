@@ -102,10 +102,8 @@ class SessionStore {
         transcriptOffset: null,
         transcriptRemainder: "",
         transcriptInputCalls: new Set(),
-        transcriptApprovalCalls: new Set(),
         transcriptInputSince: null,
         waitingForTranscriptInput: false,
-        unmatchedPreToolUseTimestamps: [],
       };
       this.sessions.set(id, s);
     }
@@ -161,29 +159,17 @@ class SessionStore {
     } else if (body.event !== "UserPromptSubmit") {
       s.currentTool = null;
     }
-    if (body.event === "PreToolUse") {
-      const [callId] = s.transcriptApprovalCalls;
-      if (callId) {
-        s.transcriptApprovalCalls.delete(callId);
-        s.transcriptInputCalls.delete(callId);
-      } else {
-        s.unmatchedPreToolUseTimestamps.push(ts);
-      }
-      if (s.transcriptInputCalls.size === 0) s.transcriptInputSince = null;
-    }
     if (body.event === "UserPromptSubmit") {
       if (body.prompt_line) s.lastPrompt = body.prompt_line;
       s.message = null;
       s.currentTool = null;
       s.transcriptInputCalls.clear();
-      s.transcriptApprovalCalls.clear();
       s.transcriptInputSince = null;
       s.waitingForTranscriptInput = false;
-      s.unmatchedPreToolUseTimestamps = [];
     }
     if (body.event === "Notification" && next === "needs_input") s.message = body.message || null;
     else if (body.event !== "PreToolUse") s.message = null;
-    const effectiveNext = body.event === "PreToolUse" && s.transcriptInputCalls.size > 0
+    const effectiveNext = next === "working" && s.transcriptInputCalls.size > 0
       ? "needs_input"
       : next;
     if (effectiveNext !== s.state) this._setState(s, effectiveNext, ts);
@@ -455,10 +441,8 @@ class SessionStore {
     s.transcriptOffset = transcriptSize(resolved);
     s.transcriptRemainder = "";
     s.transcriptInputCalls.clear();
-    s.transcriptApprovalCalls.clear();
     s.transcriptInputSince = null;
     s.waitingForTranscriptInput = false;
-    s.unmatchedPreToolUseTimestamps = [];
   }
 
   _pollTranscripts() {
@@ -474,10 +458,9 @@ class SessionStore {
         changed = true;
       }
 
-      // Hook delivery and transcript polling are asynchronous. A delayed
-      // PreToolUse can overwrite needs_input after a question was detected,
-      // so enforce the state while any input call remains unanswered instead of
-      // only reacting when the pending-call boolean changes.
+      // Hook delivery and transcript polling are asynchronous. Keep input
+      // requests authoritative until their matching result reaches the
+      // transcript, even if another tool hook reports that work is in progress.
       if (waitingForInput && s.state === "working") {
         const inputTs = Number(s.transcriptInputSince) || Date.now();
         this._setState(s, "needs_input", Math.max(s.lastEventTs, inputTs));
@@ -495,10 +478,8 @@ class SessionStore {
       s.currentTool = null;
       s.message = null;
       s.transcriptInputCalls.clear();
-      s.transcriptApprovalCalls.clear();
       s.transcriptInputSince = null;
       s.waitingForTranscriptInput = false;
-      s.unmatchedPreToolUseTimestamps = [];
       this._setState(s, terminalOutcome.state, ts);
       changed = true;
     }
@@ -789,24 +770,12 @@ function isCodexApprovalCall(payload) {
 
 function updateTranscriptInputCalls(session, parsed) {
   if (parsed.inputStarted) {
-    // The tool hook can arrive before the next transcript poll after a fast
-    // approval. Do not resurrect an approval that the tool has already begun.
-    if (parsed.approvalStarted) {
-      session.unmatchedPreToolUseTimestamps = session.unmatchedPreToolUseTimestamps
-        .filter((timestamp) => timestamp >= parsed.timestamp);
-      if (session.unmatchedPreToolUseTimestamps.length > 0) {
-        session.unmatchedPreToolUseTimestamps.shift();
-        return;
-      }
-    }
     if (session.transcriptInputCalls.size === 0) {
       session.transcriptInputSince = parsed.timestamp;
     }
     session.transcriptInputCalls.add(parsed.inputStarted);
-    if (parsed.approvalStarted) session.transcriptApprovalCalls.add(parsed.approvalStarted);
   }
   if (parsed.inputFinished) {
-    session.transcriptApprovalCalls.delete(parsed.inputFinished);
     if (session.transcriptInputCalls.delete(parsed.inputFinished) &&
         session.transcriptInputCalls.size === 0) {
       session.transcriptInputSince = null;
