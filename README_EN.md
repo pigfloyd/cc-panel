@@ -17,6 +17,7 @@ A multi-session status panel for Claude Code and Codex CLI on Windows. It brings
 - Distinguish running, input-required, completed, error, and idle sessions
 - Automatically stack idle sessions at the top; expand them on hover and collapse them again three seconds after the pointer leaves
 - Focus the associated terminal window by clicking a session card
+- Optionally show a terminal automatically when its session needs input or enters an error state
 - Cycle through terminals by input-required, error, and completed priority with a global shortcut
 - Minimize every associated terminal window with one command
 - Start Claude Code or Codex CLI directly from a selected directory
@@ -63,7 +64,7 @@ Demo mode does not start the local event service, install hooks, read real sessi
 - Click a session card to switch to its terminal.
 - Click the `Claude Code` or `Codex CLI` button at the bottom, then choose a working directory, to create a session.
 - Hover over a launch button to quickly start from a recently used directory.
-- Click the settings button at the bottom to configure always-on-top, sounds, startup, and terminal applications.
+- Click the settings button at the bottom to configure always-on-top, sounds, automatic attention-terminal focus, startup, and terminal applications. Automatic focus is off by default. State changes within 500 ms are merged into one focus action; later changes are handled separately.
 - Press `Alt+C` to focus terminals in input-required, error, then completed priority; press it repeatedly to cycle through them.
 - Click the minimize button at the bottom, or press `Alt+Z`, to minimize all detected terminal windows.
 

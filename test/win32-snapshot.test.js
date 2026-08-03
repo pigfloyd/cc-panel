@@ -31,6 +31,7 @@ test("snapshot returns the process/window shape", { skip: process.platform !== "
     assert.equal(typeof window.pid, "number");
     assert.equal(typeof window.hwnd, "string");
     assert.equal(typeof window.className, "string");
+    assert.equal(typeof window.title, "string");
   }
 });
 

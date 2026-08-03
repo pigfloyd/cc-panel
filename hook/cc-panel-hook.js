@@ -41,10 +41,6 @@ const TERMINAL_NAMES = new Set([
 ]);
 const SYSTEM_BOUNDARY = new Set(["explorer.exe", "services.exe", "winlogon.exe", "svchost.exe"]);
 
-const PROMPT_MAX = 80;
-const PROMPT_SECRET_RE =
-  /\b(api[_-]?key|authorization|bearer|password|passwd|private[_-]?key|secret|token)\b|sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}/i;
-
 function readStdinJson() {
   return new Promise((resolve) => {
     const chunks = [];
@@ -323,17 +319,6 @@ function notificationTypeFromPayload(payload) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function extractPromptLine(prompt) {
-  if (typeof prompt !== "string") return null;
-  for (const line of prompt.split(/\r?\n/)) {
-    const t = line.trim();
-    if (!t) continue;
-    if (PROMPT_SECRET_RE.test(t)) return null;
-    return t.length > PROMPT_MAX ? `${t.slice(0, PROMPT_MAX - 1)}…` : t;
-  }
-  return null;
-}
-
 function candidatePorts() {
   const ports = [];
   try {
@@ -429,10 +414,6 @@ async function main() {
   const toolName = toolNameFromPayload(payload);
   if ((event === "PreToolUse" || event === "PostToolUse" || event === "PermissionRequest") && toolName) {
     body.tool_name = toolName;
-  }
-  if (event === "UserPromptSubmit") {
-    const line = extractPromptLine(payload.prompt || payload.user_prompt || payload.input);
-    if (line) body.prompt_line = line;
   }
   if ((event === "Notification" || event === "PermissionRequest") && typeof payload.message === "string") {
     body.message = payload.message.slice(0, 200);

@@ -5,6 +5,10 @@ const path = require("path");
 
 const config = require("../src/main/config");
 
+test("keeps automatic VS Code launching disabled by default", () => {
+  assert.equal(config.DEFAULTS.openVSCodeWithTerminal, false);
+});
+
 test("save propagates write failures and cleans up the temporary file", () => {
   const failure = new Error("access denied");
   const originalMkdirSync = fs.mkdirSync;

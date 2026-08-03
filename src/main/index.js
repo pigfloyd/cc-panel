@@ -15,6 +15,12 @@ const {
   buildLaunchSpec,
 } = require("./terminal-launcher");
 const { detectTerminalApps } = require("./terminal-detector");
+const { isAutoFocusState, selectAttentionCandidates } = require("./attention-focus");
+const {
+  buildVSCodeLaunchSpec,
+  directoryKey,
+  findOpenDirectories,
+} = require("./vscode");
 const {
   normalizeTerminalDirectory,
   normalizeTerminalHistory,
@@ -39,7 +45,8 @@ let cfg = demoMode
   ? {
       alwaysOnTop: false,
       sound: false,
-      showPromptSummary: true,
+      autoFocusAttention: false,
+      openVSCodeWithTerminal: false,
       autoLaunch: false,
       onboardingCompleted: true,
       terminalHistory: [],
@@ -62,10 +69,17 @@ let lastHookEventAt = null;
 let hookAutoRepairEnabled = cfg.hooksEnabled !== false;
 let detectedClients = { claude: false, codex: false };
 let onboardingTestEvent = { ok: false };
+let attentionBatchTimer = null;
+let attentionTransitionSequence = 0;
+const pendingAttentionTransitions = new Map();
+let detectedVSCodeDirectories = new Set();
+const openingVSCodeDirectories = new Map();
 
 const TERMINAL_COMMANDS = new Set(["codex", "claude"]);
 const MINIMIZE_ALL_SHORTCUT = "Alt+Z";
 const ATTENTION_SHORTCUT = "Alt+C";
+const ATTENTION_BATCH_DELAY_MS = 500;
+const VSCODE_OPEN_GRACE_MS = 15000;
 const SESSION_CAPTURE_INTERVAL_MS = 5000;
 const HOOK_HEALTH_INTERVAL_MS = 5000;
 const APP_ICON_PATH = path.join(
@@ -108,9 +122,10 @@ async function main() {
     return;
   }
 
-  store = new SessionStore((snapshot) => {
-    if (win && !win.isDestroyed()) win.webContents.send("sessions", snapshot);
-  });
+  store = new SessionStore(
+    publishSessions,
+    queueAttentionTransition,
+  );
   try {
     const eventService = await server.start((body) => {
       lastHookEventAt = Date.now();
@@ -140,6 +155,7 @@ async function main() {
   app.on("window-all-closed", () => {
     clearInterval(sessionCaptureTimer);
     clearInterval(hookHealthTimer);
+    clearAttentionBatch();
     server.clearRuntime();
     store.dispose();
     app.quit();
@@ -183,6 +199,44 @@ function focusNextAttentionSession() {
   notifySessionCard(target.id);
 }
 
+function queueAttentionTransition(transition) {
+  if (!transition || !transition.cardKey) return;
+  if (!isAutoFocusState(transition.state)) {
+    pendingAttentionTransitions.delete(transition.cardKey);
+    return;
+  }
+  if (!cfg.autoFocusAttention) return;
+
+  pendingAttentionTransitions.set(transition.cardKey, {
+    ...transition,
+    sequence: ++attentionTransitionSequence,
+  });
+  if (!attentionBatchTimer) {
+    attentionBatchTimer = setTimeout(flushAttentionBatch, ATTENTION_BATCH_DELAY_MS);
+  }
+}
+
+function flushAttentionBatch() {
+  attentionBatchTimer = null;
+  const pending = [...pendingAttentionTransitions.values()];
+  pendingAttentionTransitions.clear();
+  if (!cfg.autoFocusAttention || !store || !pending.length) return;
+
+  const candidates = selectAttentionCandidates(pending, store.snapshot());
+
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  for (const target of candidates) {
+    const result = store.focus(target.id, display.workArea, { reposition: false });
+    if (result.ok) return;
+  }
+}
+
+function clearAttentionBatch() {
+  clearTimeout(attentionBatchTimer);
+  attentionBatchTimer = null;
+  pendingAttentionTransitions.clear();
+}
+
 function revealSessionInPanel(id, reason) {
   if (!win || win.isDestroyed()) return;
   if (win.isMinimized()) win.restore();
@@ -205,13 +259,95 @@ app.on("will-quit", () => globalShortcut.unregisterAll());
 
 function refreshRunningSessions() {
   if (sessionCapturePromise) return sessionCapturePromise;
-  sessionCapturePromise = captureRunningSessions(store)
+  sessionCapturePromise = captureRunningSessions(store, updateVSCodeStatus)
     .catch((err) => {
       console.error("[cc-panel] session capture failed:", String(err.message || err));
       return [];
     })
     .finally(() => { sessionCapturePromise = null; });
   return sessionCapturePromise;
+}
+
+function activeVSCodeDirectories(now = Date.now()) {
+  const active = new Set(detectedVSCodeDirectories);
+  for (const [key, expiresAt] of openingVSCodeDirectories) {
+    if (expiresAt <= now) openingVSCodeDirectories.delete(key);
+    else active.add(key);
+  }
+  return active;
+}
+
+function sessionSnapshotWithVSCode(snapshot = store ? store.snapshot() : []) {
+  const openDirectories = activeVSCodeDirectories();
+  return snapshot.map((session) => ({
+    ...session,
+    vscodeOpen: !!directoryKey(session.cwd) && openDirectories.has(directoryKey(session.cwd)),
+  }));
+}
+
+function publishSessions(snapshot = store ? store.snapshot() : []) {
+  const enriched = sessionSnapshotWithVSCode(snapshot);
+  if (win && !win.isDestroyed()) win.webContents.send("sessions", enriched);
+  return enriched;
+}
+
+function updateVSCodeStatus(systemSnapshot) {
+  detectedVSCodeDirectories = findOpenDirectories(store ? store.snapshot() : [], systemSnapshot);
+  for (const key of detectedVSCodeDirectories) openingVSCodeDirectories.delete(key);
+  publishSessions();
+}
+
+function launchVSCodeDirectory(directory) {
+  if (process.platform !== "win32") {
+    return Promise.resolve({ ok: false, reason: "unsupported_platform" });
+  }
+  const key = directoryKey(directory);
+  if (!key || !isDirectory(directory)) {
+    return Promise.resolve({ ok: false, reason: "invalid_directory" });
+  }
+  if (activeVSCodeDirectories().has(key)) {
+    return Promise.resolve({ ok: true, cwd: directory, vscodeOpen: true, alreadyOpen: true });
+  }
+
+  const launch = buildVSCodeLaunchSpec(directory);
+  if (!launch) return Promise.resolve({ ok: false, reason: "vscode_not_found" });
+
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(launch.executable, launch.args, {
+        cwd: launch.cwd,
+        detached: true,
+        stdio: "ignore",
+        windowsHide: false,
+      });
+      let settled = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
+      child.once("spawn", () => {
+        child.unref();
+        openingVSCodeDirectories.set(key, Date.now() + VSCODE_OPEN_GRACE_MS);
+        publishSessions();
+        setTimeout(() => publishSessions(), VSCODE_OPEN_GRACE_MS + 100);
+        finish({ ok: true, cwd: directory, vscodeOpen: true });
+      });
+      child.once("error", (err) => {
+        finish({
+          ok: false,
+          reason: err && err.code === "ENOENT" ? "vscode_not_found" : "launch_failed",
+          error: String(err && err.message || err),
+        });
+      });
+    } catch (err) {
+      resolve({
+        ok: false,
+        reason: "launch_failed",
+        error: String(err.message || err),
+      });
+    }
+  });
 }
 
 function installHooks(targets = null) {
@@ -344,7 +480,8 @@ function configSnapshot(extra = {}) {
   return {
     alwaysOnTop: !!cfg.alwaysOnTop,
     sound: !!cfg.sound,
-    showPromptSummary: cfg.showPromptSummary !== false,
+    autoFocusAttention: !!cfg.autoFocusAttention,
+    openVSCodeWithTerminal: !!cfg.openVSCodeWithTerminal,
     language: cfg.language === "en" ? "en" : "zh-CN",
     autoLaunch: !!cfg.autoLaunch,
     hooksEnabled: cfg.hooksEnabled !== false,
@@ -423,7 +560,7 @@ function createWindow() {
 
 function registerIpc() {
   ipcMain.handle("get-state", () => ({
-    sessions: store.snapshot(),
+    sessions: sessionSnapshotWithVSCode(),
     hooksInstalled: hookInstallStatus ? hookInstallStatus.installed : installer.isInstalled(),
     claudeInstalled: installer.isClaudeInstalled(),
     codexInstalled: installer.isCodexInstalled(),
@@ -533,13 +670,20 @@ function registerIpc() {
         };
         child.once("spawn", () => {
           child.unref();
-          finish({
+          const terminalResult = {
             ok: true,
             cwd,
             terminalCommand,
             terminalExecutable: launch.executable,
             config: configSnapshot(),
             ...(configSaveError ? { configSaveError } : {}),
+          };
+          if (!cfg.openVSCodeWithTerminal) {
+            finish(terminalResult);
+            return;
+          }
+          void launchVSCodeDirectory(cwd).then((vscode) => {
+            finish({ ...terminalResult, vscode });
           });
         });
         child.once("error", (err) => {
@@ -572,6 +716,16 @@ function registerIpc() {
         ...(!saved.ok ? { error: saved.error } : {}),
       },
     });
+  });
+
+  ipcMain.handle("open-vscode", async (_event, requestedDirectory) => {
+    const requestedKey = directoryKey(requestedDirectory);
+    const session = requestedKey && store.snapshot()
+      .find((candidate) => directoryKey(candidate.cwd) === requestedKey);
+    if (!session || !isDirectory(session.cwd)) {
+      return { ok: false, reason: "invalid_directory" };
+    }
+    return launchVSCodeDirectory(session.cwd);
   });
 
   ipcMain.handle("inspect-hooks", () => {
@@ -624,7 +778,12 @@ function registerIpc() {
       const saved = persistConfig((next) => {
         if (typeof patch.alwaysOnTop === "boolean") next.alwaysOnTop = patch.alwaysOnTop;
         if (typeof patch.sound === "boolean") next.sound = patch.sound;
-        if (typeof patch.showPromptSummary === "boolean") next.showPromptSummary = patch.showPromptSummary;
+        if (typeof patch.autoFocusAttention === "boolean") {
+          next.autoFocusAttention = patch.autoFocusAttention;
+        }
+        if (typeof patch.openVSCodeWithTerminal === "boolean") {
+          next.openVSCodeWithTerminal = patch.openVSCodeWithTerminal;
+        }
         if (patch.language === "zh-CN" || patch.language === "en") next.language = patch.language;
         if (typeof patch.terminalCommand === "string" && TERMINAL_COMMANDS.has(patch.terminalCommand)) {
           next.terminalCommand = patch.terminalCommand;
@@ -634,6 +793,7 @@ function registerIpc() {
       if (!saved.ok) return saved;
 
       if (typeof patch.alwaysOnTop === "boolean" && win) win.setAlwaysOnTop(cfg.alwaysOnTop);
+      if (patch.autoFocusAttention === false) clearAttentionBatch();
       let autoLaunchError = null;
       if (typeof patch.autoLaunch === "boolean") {
         autoLaunchStatus = setAutoLaunch(cfg.autoLaunch);

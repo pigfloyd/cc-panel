@@ -11,7 +11,8 @@ const DEFAULTS = {
   bounds: null,          // {x,y,width,height}
   alwaysOnTop: true,
   sound: false,
-  showPromptSummary: true,
+  autoFocusAttention: false,
+  openVSCodeWithTerminal: false,
   language: "zh-CN",
   autoLaunch: true,
   hooksEnabled: true,
@@ -27,6 +28,7 @@ function readConfig(file) {
     const raw = JSON.parse(fs.readFileSync(file, "utf8"));
     const loaded = { ...DEFAULTS, ...(raw && typeof raw === "object" ? raw : {}) };
     delete loaded.compactMode;
+    delete loaded.showPromptSummary;
     return loaded;
   } catch {
     return null;
@@ -58,4 +60,4 @@ function update(current, mutator) {
   return next;
 }
 
-module.exports = { load, save, update, DIR };
+module.exports = { load, save, update, DIR, DEFAULTS };

@@ -10,7 +10,6 @@
         stateSince: now - 38_000,
         terminalPid: 14001,
         currentTool: "Playwright · 正在验证 Demo 页面",
-        lastPrompt: "为 GitHub 介绍页准备产品截图",
         hasWindow: true,
       },
       {
@@ -22,7 +21,6 @@
         stateSince: now - 92_000,
         terminalPid: 14002,
         message: "等待确认：允许执行 npm run build",
-        lastPrompt: "更新快速开始和安装文档",
         hasWindow: true,
       },
       {
@@ -33,7 +31,7 @@
         state: "done",
         stateSince: now - 4 * 60_000,
         terminalPid: 14003,
-        lastPrompt: "补充鉴权缓存测试并更新变更说明",
+        vscodeOpen: true,
         hasWindow: true,
       },
       {
@@ -44,7 +42,6 @@
         state: "error",
         stateSince: now - 11 * 60_000,
         terminalPid: 14004,
-        lastPrompt: "视觉回归测试发现 2 处基线差异",
         hasWindow: true,
       },
       {
@@ -55,7 +52,6 @@
         state: "idle",
         stateSince: now - 18 * 60_000,
         terminalPid: 14005,
-        lastPrompt: "等待下一项任务",
         hasWindow: true,
       },
       {
@@ -66,7 +62,6 @@
         state: "idle",
         stateSince: now - 26 * 60_000,
         terminalPid: 14006,
-        lastPrompt: "等待下一项任务",
         hasWindow: true,
       },
       {
@@ -77,7 +72,6 @@
         state: "idle",
         stateSince: now - 41 * 60_000,
         terminalPid: 14007,
-        lastPrompt: "等待下一项任务",
         hasWindow: true,
       },
     ];

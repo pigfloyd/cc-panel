@@ -148,6 +148,8 @@ public static class CcPanelStartupCapture {
   [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)]
   public static extern int GetClassName(IntPtr hWnd, StringBuilder className, int maxCount);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  public static extern int GetWindowText(IntPtr hWnd, StringBuilder title, int maxCount);
   [DllImport("kernel32.dll", SetLastError = true)]
   private static extern IntPtr OpenProcess(uint access, bool inheritHandle, uint processId);
   [DllImport("kernel32.dll", SetLastError = true)]
@@ -249,11 +251,14 @@ $callback = [CcPanelStartupCapture+EnumWindowsProc]{ param($hwnd, $lParam)
     if ($windowProcessId) {
       $className = New-Object System.Text.StringBuilder 256
       [void][CcPanelStartupCapture]::GetClassName($hwnd, $className, $className.Capacity)
+      $title = New-Object System.Text.StringBuilder 1024
+      [void][CcPanelStartupCapture]::GetWindowText($hwnd, $title, $title.Capacity)
       $rootOwner = [CcPanelStartupCapture]::GetAncestor($hwnd, 3)
       [void]$windows.Add([pscustomobject]@{
         hwnd = $hwnd.ToInt64().ToString()
         pid = $windowProcessId
         className = $className.ToString()
+        title = $title.ToString()
         rootOwnerHwnd = if ($rootOwner -eq [IntPtr]::Zero) { $null } else { $rootOwner.ToInt64().ToString() }
       })
     }
@@ -279,7 +284,7 @@ $callback = [CcPanelStartupCapture+EnumWindowsProc]{ param($hwnd, $lParam)
 } | ConvertTo-Json -Compress -Depth 3
 `;
 
-function captureRunningSessions(store) {
+function captureRunningSessions(store, onSnapshot = null) {
   if (process.platform !== "win32") return Promise.resolve([]);
 
   // Preferred path: koffi snapshot runs in-process (a few ms per poll instead
@@ -287,6 +292,7 @@ function captureRunningSessions(store) {
   const snapshot = win32Snapshot.snapshot();
   if (snapshot) {
     try {
+      publishSnapshot(onSnapshot, snapshot);
       const sessions = capturedSessions(snapshot.processes, snapshot.windows);
       for (const session of sessions) store.handleEvent(session);
       return Promise.resolve(sessions);
@@ -295,10 +301,10 @@ function captureRunningSessions(store) {
       return Promise.resolve([]);
     }
   }
-  return captureWithPowerShell(store);
+  return captureWithPowerShell(store, onSnapshot);
 }
 
-function captureWithPowerShell(store) {
+function captureWithPowerShell(store, onSnapshot) {
   return new Promise((resolve) => {
     execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", SNAPSHOT_SCRIPT], {
       timeout: 10000,
@@ -312,6 +318,7 @@ function captureWithPowerShell(store) {
       }
       try {
         const snapshot = JSON.parse(stdout);
+        publishSnapshot(onSnapshot, snapshot);
         const sessions = capturedSessions(snapshot.processes || [], snapshot.windows || []);
         for (const session of sessions) store.handleEvent(session);
         resolve(sessions);
@@ -321,6 +328,15 @@ function captureWithPowerShell(store) {
       }
     });
   });
+}
+
+function publishSnapshot(callback, snapshot) {
+  if (typeof callback !== "function") return;
+  try {
+    callback(snapshot);
+  } catch (error) {
+    console.error("[cc-panel] snapshot observer failed:", compactError(error.message));
+  }
 }
 
 function compactError(value) {

@@ -116,7 +116,7 @@ input:focus-visible {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   align-content: center;
-  column-gap: 10px;
+  column-gap: 8px;
   row-gap: 4px;
   padding: 12px;
   overflow: hidden;
@@ -192,8 +192,30 @@ input:focus-visible {
   transform: translateY(0);
 }
 
-.card:focus-visible {
-  outline-color: var(--state);
+.card:has(.card-main:focus-visible) {
+  outline: 2px solid var(--state);
+  outline-offset: 2px;
+}
+
+.card .card-main {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: grid;
+  align-content: center;
+  row-gap: 4px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+}
+
+.card .card-main:focus-visible {
+  outline: 0;
 }
 
 .card.shortcut-reveal {
@@ -251,6 +273,15 @@ input:focus-visible {
 
 .card.no-window {
   cursor: default;
+}
+
+.card.no-window .card-main {
+  cursor: default;
+}
+
+.card.no-window .head,
+.card.no-window .session-context,
+.card.no-window .detail {
   opacity: 0.72;
 }
 
@@ -280,7 +311,7 @@ input:focus-visible {
   z-index: 20;
   display: grid;
   align-items: center;
-  padding: 12px;
+  padding: 11px 10px 11px 12px;
   overflow-y: auto;
   background: rgba(232, 236, 232, 0.92);
   backdrop-filter: blur(12px);
@@ -508,19 +539,26 @@ input:focus-visible {
 
 .card .meta {
   grid-column: 2;
-  grid-row: 1 / span 3;
-  min-width: 56px;
+  grid-row: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.card .card-badges {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  justify-content: center;
-  gap: 6px;
+  justify-content: flex-end;
+  gap: 3px;
 }
 
 .card .state-label {
   display: inline-flex;
   align-items: center;
-  min-height: 22px;
+  height: 28px;
   padding: 0 7px;
   color: var(--state);
   background: rgba(255, 255, 255, 0.62);
@@ -1056,6 +1094,79 @@ input:focus-visible {
   line-height: 1.2;
   text-align: center;
   white-space: nowrap;
+}
+
+.card .vscode-button {
+  position: relative;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(189, 197, 207, 0.88);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.card .vscode-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  pointer-events: none;
+}
+
+.card .vscode-status-dot {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 7px;
+  height: 7px;
+  display: none;
+  background: var(--s-done);
+  border: 1.5px solid #fff;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.card .vscode-button:hover:not(:disabled) {
+  color: var(--text);
+  background: #fff;
+  border-color: #8d98a5;
+}
+
+.card .vscode-button[data-open="true"] {
+  background: rgba(216, 238, 227, 0.84);
+  border-color: rgba(34, 131, 90, 0.32);
+}
+
+.card .vscode-button[data-open="true"] .vscode-status-dot {
+  display: block;
+}
+
+.card .vscode-button[data-pending="true"] .vscode-status-dot {
+  display: block;
+  background: transparent;
+  border-color: var(--s-working);
+  border-top-color: transparent;
+  animation: vscode-status-spin 0.8s linear infinite;
+}
+
+.card .vscode-button:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.card .vscode-button[data-open="true"]:disabled,
+.card .vscode-button[data-pending="true"]:disabled {
+  opacity: 1;
+}
+
+@keyframes vscode-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .hook-status-row {

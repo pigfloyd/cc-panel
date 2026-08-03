@@ -32,12 +32,13 @@ const ATTENTION_STATES = new Set(["needs_input", "error", "done"]);
 const ATTENTION_STATE_PRIORITY = { needs_input: 0, error: 1, done: 2 };
 
 class SessionStore {
-  constructor(onUpdate) {
+  constructor(onUpdate, onStateTransition) {
     this.sessions = new Map();
     this.sessionAliases = new Map();
     this.nextCardKey = 1;
     this.attentionCursorKey = null;
     this.onUpdate = onUpdate || (() => {});
+    this.onStateTransition = onStateTransition || (() => {});
     this._pollTimer = setInterval(() => this._poll(), POLL_MS);
     this._transcriptTimer = setInterval(() => this._pollTranscripts(), TRANSCRIPT_POLL_MS);
   }
@@ -90,7 +91,6 @@ class SessionStore {
         stateSince: ts,
         lastEventTs: 0,
         currentTool: null,
-        lastPrompt: null,
         message: null,
         agent_pid: null,
         terminal_pid: null,
@@ -160,7 +160,6 @@ class SessionStore {
       s.currentTool = null;
     }
     if (body.event === "UserPromptSubmit") {
-      if (body.prompt_line) s.lastPrompt = body.prompt_line;
       s.message = null;
       s.currentTool = null;
       s.transcriptInputCalls.clear();
@@ -428,8 +427,18 @@ class SessionStore {
   }
 
   _setState(s, state, ts) {
+    const previousState = s.state;
+    if (state === previousState) return false;
     s.state = state;
     s.stateSince = ts;
+    this.onStateTransition({
+      id: s.id,
+      cardKey: s.cardKey,
+      previousState,
+      state,
+      stateSince: ts,
+    });
+    return true;
   }
 
   _trackTranscript(s, transcriptPath) {
@@ -551,7 +560,6 @@ function sessionSnapshot(s) {
     state: s.state,
     stateSince: s.stateSince,
     currentTool: s.currentTool,
-    lastPrompt: s.lastPrompt,
     message: s.message,
     terminalPid: s.terminal_pid,
     hasWindow: !!s.wt_hwnd && s.windowAlive !== false,

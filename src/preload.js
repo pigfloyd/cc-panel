@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("ccPanel", {
   setTerminalExecutable: (executable) => ipcRenderer.invoke("set-terminal-executable", executable),
   selectTerminalExecutable: () => ipcRenderer.invoke("select-terminal-executable"),
   openTerminal: (command, directory) => ipcRenderer.invoke("open-terminal", command, directory),
+  openVSCode: (directory) => ipcRenderer.invoke("open-vscode", directory),
   installHooks: () => ipcRenderer.invoke("install-hooks"),
   inspectHooks: () => ipcRenderer.invoke("inspect-hooks"),
   runOnboardingChecks: () => ipcRenderer.invoke("run-onboarding-checks"),

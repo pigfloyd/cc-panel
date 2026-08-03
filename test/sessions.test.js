@@ -70,7 +70,6 @@ test("returns Claude and Codex sessions to done when a turn stops", () => {
       session_id: `${client}:turn`,
       event: "UserPromptSubmit",
       client,
-      prompt_line: "run the tests",
       ts: 100,
     });
     store.handleEvent({
@@ -210,14 +209,12 @@ test("ignores a delayed async prompt hook after the turn has stopped", () => {
     session_id: "claude:delayed-prompt",
     event: "UserPromptSubmit",
     client: "claude",
-    prompt_line: "slow snapshot",
     ts: 100,
   });
 
   const [session] = store.snapshot();
   assert.equal(session.state, "done");
   assert.equal(session.stateSince, 300);
-  assert.equal(session.lastPrompt, null);
 });
 
 test("recognizes Codex and Claude transcript interruption records", () => {
@@ -777,7 +774,6 @@ test("keeps one card when a restarted conversation reports multiple real session
       agent_pid: 43,
       terminal_pid: 7,
       cwd: "C:\\work\\project",
-      prompt_line: "continue",
       ts: 300,
     });
 
@@ -972,7 +968,6 @@ test("does not add a captured duplicate after a real hook session exists", () =>
       state: "working",
       stateSince: 100,
       currentTool: null,
-      lastPrompt: null,
       message: null,
       terminalPid: 202,
       hasWindow: true,
@@ -1013,7 +1008,6 @@ test("replaces a startup-captured card when wrapper agent PIDs differ", () => {
       state: "working",
       stateSince: 123,
       currentTool: null,
-      lastPrompt: null,
       message: null,
       terminalPid: 7,
       hasWindow: true,
@@ -1490,4 +1484,40 @@ test("forwards focus options to the window activator", () => {
   } finally {
     win32.focusWindow = realFocusWindow;
   }
+});
+
+test("reports each real session state transition once", () => {
+  const transitions = [];
+  const store = new SessionStore(null, (transition) => transitions.push(transition));
+  store.dispose();
+
+  store.handleEvent({ session_id: "attention", event: "SessionStart", ts: 100 });
+  store.handleEvent({ session_id: "attention", event: "PermissionRequest", ts: 200 });
+  store.handleEvent({ session_id: "attention", event: "PermissionRequest", ts: 300 });
+  store.handleEvent({ session_id: "attention", event: "UserPromptSubmit", ts: 400 });
+  store.handleEvent({ session_id: "attention", event: "StopFailure", ts: 500 });
+
+  assert.deepEqual(transitions, [
+    {
+      id: "attention",
+      cardKey: "card:1",
+      previousState: "idle",
+      state: "needs_input",
+      stateSince: 200,
+    },
+    {
+      id: "attention",
+      cardKey: "card:1",
+      previousState: "needs_input",
+      state: "working",
+      stateSince: 400,
+    },
+    {
+      id: "attention",
+      cardKey: "card:1",
+      previousState: "working",
+      state: "error",
+      stateSince: 500,
+    },
+  ]);
 });

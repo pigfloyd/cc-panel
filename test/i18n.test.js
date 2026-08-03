@@ -12,5 +12,9 @@ test("normalizes supported languages and defaults to Chinese", () => {
 test("translates interface text and interpolates values", () => {
   assert.equal(translate("en", "settings.language"), "Language");
   assert.equal(translate("zh-CN", "settings.language"), "界面语言");
+  assert.equal(translate("en", "settings.autoFocusAttention"), "Auto-show attention terminals");
+  assert.equal(translate("zh-CN", "settings.autoFocusAttention"), "自动弹出待处理终端");
+  assert.equal(translate("zh-CN", "settings.openVSCodeWithTerminal"), "打开终端时同时打开 VS Code");
   assert.equal(translate("en", "terminal.collapsedCount", { count: 3 }), "Minimized 3 terminal windows");
+  assert.equal(translate("en", "session.vscode.openTitle", { path: "C:\\work" }), "Open C:\\work in VS Code");
 });

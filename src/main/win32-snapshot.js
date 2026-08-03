@@ -14,6 +14,7 @@ const PROCESS_VM_READ = 0x0010;
 const GA_ROOTOWNER = 3;
 const TH32CS_SNAPPROCESS = 0x00000002;
 const CLASS_NAME_BUF = 256;
+const WINDOW_TITLE_BUF = 1024;
 
 // Offsets inside RTL_USER_PROCESS_PARAMETERS, 64-bit / 32-bit layouts.
 const RTL_USER_PROCESS_PARAMETERS = {
@@ -60,6 +61,7 @@ function loadApi() {
       IsWindowVisible: user32.func("bool __stdcall IsWindowVisible(intptr_t hwnd)"),
       GetAncestor: user32.func("intptr_t __stdcall GetAncestor(intptr_t hwnd, uint32_t flags)"),
       GetClassNameW: user32.func("int32_t __stdcall GetClassNameW(intptr_t hwnd, _Out_ uint16_t *className, int32_t maxCount)"),
+      GetWindowTextW: user32.func("int32_t __stdcall GetWindowTextW(intptr_t hwnd, _Out_ uint16_t *title, int32_t maxCount)"),
       CreateToolhelp32Snapshot: kernel32.func("intptr_t __stdcall CreateToolhelp32Snapshot(uint32_t flags, uint32_t pid)"),
       Process32FirstW: kernel32.func("bool __stdcall Process32FirstW(intptr_t snapshot, _Inout_ PROCESSENTRY32W *entry)"),
       Process32NextW: kernel32.func("bool __stdcall Process32NextW(intptr_t snapshot, _Inout_ PROCESSENTRY32W *entry)"),
@@ -131,11 +133,14 @@ function enumerateWindows(fns) {
     if (!pid) return true;
     const classNameBuf = new Uint16Array(CLASS_NAME_BUF);
     const length = fns.GetClassNameW(hwnd, classNameBuf, classNameBuf.length);
+    const titleBuf = new Uint16Array(WINDOW_TITLE_BUF);
+    const titleLength = fns.GetWindowTextW(hwnd, titleBuf, titleBuf.length);
     const rootOwner = fns.GetAncestor(hwnd, GA_ROOTOWNER);
     windows.push({
       hwnd: String(hwnd),
       pid,
       className: length > 0 ? utf16ArrayToString(classNameBuf, length) : "",
+      title: titleLength > 0 ? utf16ArrayToString(titleBuf, titleLength) : "",
       rootOwnerHwnd: rootOwner ? String(rootOwner) : null,
     });
     return true;

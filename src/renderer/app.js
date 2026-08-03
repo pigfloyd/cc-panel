@@ -25,7 +25,8 @@ const els = {
   settingsPanel: document.getElementById("settings-panel"),
   settingAlwaysOnTop: document.getElementById("setting-always-on-top"),
   settingSound: document.getElementById("setting-sound"),
-  settingPromptSummary: document.getElementById("setting-prompt-summary"),
+  settingAutoFocusAttention: document.getElementById("setting-auto-focus-attention"),
+  settingOpenVSCodeWithTerminal: document.getElementById("setting-open-vscode-with-terminal"),
   settingAutoLaunch: document.getElementById("setting-auto-launch"),
   settingLanguage: document.getElementById("setting-language"),
   settingTerminalExecutable: document.getElementById("setting-terminal-executable"),
@@ -68,7 +69,8 @@ let prevStates = new Map();
 let cfg = {
   alwaysOnTop: true,
   sound: false,
-  showPromptSummary: true,
+  autoFocusAttention: false,
+  openVSCodeWithTerminal: false,
   language: "zh-CN",
   autoLaunch: true,
   terminalCommand: "claude",
@@ -91,6 +93,7 @@ let onboardingPollTimer = null;
 let onboardingStatus = null;
 let revealSessionTimer = null;
 let revealedSessionCard = null;
+const pendingVSCodeDirectories = new Set();
 const BROWSE_TERMINAL_VALUE = "__browse__";
 
 function currentLanguage() {
@@ -137,7 +140,6 @@ async function saveSetting(patch) {
 function detailText(s) {
   if (s.state === "needs_input" && s.message) return s.message;
   if (s.state === "working" && s.currentTool) return t("session.tool", { tool: s.currentTool });
-  if (cfg.showPromptSummary !== false && s.lastPrompt) return s.lastPrompt;
   return "";
 }
 
@@ -400,8 +402,8 @@ function render() {
   const idleSessions = sorted.filter((session) => session.state === "idle");
   const hasIdleStack = idleSessions.length > 1;
   const animateInitialCollapse = hasIdleStack && !idleStackInitialized;
-  const focusedCardKey = document.activeElement?.classList?.contains("card")
-    ? document.activeElement.dataset.cardKey
+  const focusedCardKey = document.activeElement?.classList?.contains("card-main")
+    ? document.activeElement.closest(".card")?.dataset.cardKey
     : null;
   const existingCards = new Map(
     [...els.cards.querySelectorAll(".card")].map((card) => [card.dataset.cardKey, card]),
@@ -449,8 +451,9 @@ function render() {
 
   if (focusedCardKey) {
     const focusedCard = cardsByKey.get(focusedCardKey);
-    if (focusedCard && document.activeElement !== focusedCard) {
-      focusedCard.focus({ preventScroll: true });
+    const focusedCardMain = focusedCard?.querySelector(".card-main");
+    if (focusedCardMain && document.activeElement !== focusedCardMain) {
+      focusedCardMain.focus({ preventScroll: true });
     }
   }
   if (revealedSessionCard && !revealedSessionCard.isConnected) {
@@ -487,10 +490,62 @@ async function focusSession(s) {
   }
 }
 
+function vscodeDirectoryKey(directory) {
+  return String(directory || "")
+    .trim()
+    .replace(/\//g, "\\")
+    .replace(/\\+$/, "")
+    .toLowerCase();
+}
+
+async function openVSCode(s) {
+  if (isDemoMode) {
+    showToast(t("session.vscode.demo"));
+    return;
+  }
+  const key = vscodeDirectoryKey(s.cwd);
+  if (!key) {
+    showToast(t("session.vscode.invalidDirectory"));
+    return;
+  }
+
+  pendingVSCodeDirectories.add(key);
+  render();
+  try {
+    const result = await window.ccPanel.openVSCode(s.cwd);
+    if (!result.ok) {
+      const messageKey = result.reason === "unsupported_platform"
+        ? "session.vscode.unsupported"
+        : result.reason === "invalid_directory"
+          ? "session.vscode.invalidDirectory"
+          : result.reason === "vscode_not_found"
+            ? "session.vscode.notFound"
+            : "session.vscode.openFailed";
+      showToast(t(messageKey));
+      return;
+    }
+
+    sessions = sessions.map((session) => (
+      vscodeDirectoryKey(session.cwd) === key
+        ? { ...session, vscodeOpen: true }
+        : session
+    ));
+    showToast(t("session.vscode.openedToast", { project: directoryName(s) }));
+  } catch {
+    showToast(t("session.vscode.openFailed"));
+  } finally {
+    pendingVSCodeDirectories.delete(key);
+    render();
+  }
+}
+
 function buildCard() {
-  const card = document.createElement("button");
-  card.type = "button";
+  const card = document.createElement("div");
   card.className = "card";
+
+  const cardMain = document.createElement("button");
+  cardMain.type = "button";
+  cardMain.className = "card-main";
 
   const head = document.createElement("div");
   head.className = "head";
@@ -499,19 +554,38 @@ function buildCard() {
   const directoryPath = document.createElement("span");
   directoryPath.className = "directory-path";
   head.append(title, directoryPath);
+  cardMain.append(head);
 
   const meta = document.createElement("div");
   meta.className = "meta";
+  const badges = document.createElement("div");
+  badges.className = "card-badges";
 
   const stateLabel = document.createElement("span");
   stateLabel.className = "state-label";
   const stateLabelText = document.createElement("span");
   stateLabelText.className = "state-label-text";
   stateLabel.append(stateLabelText);
-  meta.append(stateLabel);
+  badges.append(stateLabel);
 
-  card.append(head);
-  card.append(meta);
+  const vscodeButton = document.createElement("button");
+  vscodeButton.type = "button";
+  vscodeButton.className = "vscode-button";
+  const vscodeIcon = document.createElement("img");
+  vscodeIcon.className = "vscode-icon";
+  vscodeIcon.src = "../assets/vscode.svg";
+  vscodeIcon.alt = "";
+  vscodeIcon.draggable = false;
+  vscodeIcon.setAttribute("aria-hidden", "true");
+  const vscodeStatus = document.createElement("span");
+  vscodeStatus.className = "vscode-status-dot";
+  vscodeStatus.setAttribute("aria-hidden", "true");
+  vscodeButton.append(vscodeIcon, vscodeStatus);
+  vscodeButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    void openVSCode(card.sessionData);
+  });
+  meta.append(vscodeButton, badges);
 
   const context = document.createElement("div");
   context.className = "session-context";
@@ -522,7 +596,9 @@ function buildCard() {
   const elapsed = document.createElement("span");
   elapsed.className = "state-age";
   context.append(client, createContextSeparator(), terminal, createContextSeparator(), elapsed);
-  card.append(context);
+  cardMain.append(context);
+
+  card.append(cardMain, meta);
 
   card.addEventListener("click", () => focusSession(card.sessionData));
 
@@ -566,16 +642,30 @@ function updateCard(card, s) {
 
   setText(card.querySelector(".state-label-text"), t(`session.state.${state}`));
   const meta = card.querySelector(".meta");
+  const badges = meta.querySelector(".card-badges");
   let noWindowTag = meta.querySelector(".no-win-tag");
   if (!s.hasWindow && !noWindowTag) {
     noWindowTag = document.createElement("span");
     noWindowTag.className = "no-win-tag";
-    meta.append(noWindowTag);
+    badges.append(noWindowTag);
   }
   if (noWindowTag) {
     setText(noWindowTag, t("session.noWindow"));
     if (s.hasWindow) noWindowTag.remove();
   }
+
+  const vscodeButton = card.querySelector(".vscode-button");
+  const vscodePending = pendingVSCodeDirectories.has(vscodeDirectoryKey(s.cwd));
+  vscodeButton.disabled = !s.cwd || vscodePending || !!s.vscodeOpen;
+  vscodeButton.dataset.open = String(!!s.vscodeOpen);
+  vscodeButton.dataset.pending = String(vscodePending);
+  const vscodeTitle = vscodePending
+    ? t("session.vscode.opening")
+    : s.vscodeOpen
+      ? t("session.vscode.openedTitle", { path: s.cwd || "" })
+      : t("session.vscode.openTitle", { path: s.cwd || "" });
+  if (vscodeButton.title !== vscodeTitle) vscodeButton.title = vscodeTitle;
+  vscodeButton.setAttribute("aria-label", vscodeTitle);
 
   setText(card.querySelector(".client-label"), clientLabel(s));
   setText(card.querySelector(".terminal-number"), s.terminalPid
@@ -595,7 +685,7 @@ function updateCard(card, s) {
   if (detailStr && !detail) {
     detail = document.createElement("div");
     detail.className = "detail";
-    card.append(detail);
+    card.querySelector(".card-main").append(detail);
   }
   if (detail) {
     setText(detail, detailStr);
@@ -657,6 +747,9 @@ function clearIdleStackCardStyles(card) {
   card.style.removeProperty("--stack-collapsed-inset");
   card.style.removeProperty("--stack-expanded-top");
   card.style.removeProperty("z-index");
+  card.querySelector(".idle-stack-count")?.remove();
+  card.querySelector(".card-main").tabIndex = 0;
+  card.querySelector(".vscode-button").tabIndex = 0;
 }
 
 function updateIdleStackElement(stack, expanded) {
@@ -666,7 +759,8 @@ function updateIdleStackElement(stack, expanded) {
 
   for (const [index, card] of [...stack.querySelectorAll(".card")].entries()) {
     const accessible = expanded || index === 0;
-    card.tabIndex = accessible ? 0 : -1;
+    card.querySelector(".card-main").tabIndex = accessible ? 0 : -1;
+    card.querySelector(".vscode-button").tabIndex = accessible ? 0 : -1;
     if (accessible) card.removeAttribute("aria-hidden");
     else card.setAttribute("aria-hidden", "true");
   }
@@ -732,7 +826,7 @@ function revealSession({ id, reason } = {}) {
   if (!card) return;
 
   card.scrollIntoView({ behavior: "smooth", block: "center" });
-  card.focus({ preventScroll: true });
+  card.querySelector(".card-main").focus({ preventScroll: true });
   if (revealedSessionCard && revealedSessionCard !== card) {
     revealedSessionCard.classList.remove("shortcut-reveal");
   }
@@ -759,7 +853,8 @@ function refreshConfigButtons() {
   els.btnSettings.classList.toggle("active", !els.settingsPanel.classList.contains("hidden"));
   els.settingAlwaysOnTop.checked = !!cfg.alwaysOnTop;
   els.settingSound.checked = !!cfg.sound;
-  els.settingPromptSummary.checked = cfg.showPromptSummary !== false;
+  els.settingAutoFocusAttention.checked = !!cfg.autoFocusAttention;
+  els.settingOpenVSCodeWithTerminal.checked = !!cfg.openVSCodeWithTerminal;
   els.settingAutoLaunch.checked = !!cfg.autoLaunch;
   els.settingLanguage.value = currentLanguage();
   renderTerminalOptions();
@@ -906,6 +1001,11 @@ async function openTerminal(terminalCommand, directory) {
     if (result.ok && result.configSaveError) {
       showToast(t("terminal.launchedHistorySaveFailed"));
     }
+    if (result.ok && result.vscode && !result.vscode.ok) {
+      showToast(result.vscode.reason === "vscode_not_found"
+        ? t("terminal.launchedVscodeNotFound")
+        : t("terminal.launchedVscodeFailed"));
+    }
     if (!result.ok && result.reason !== "canceled") {
       const message = result.reason === "unsupported_platform"
         ? t("terminal.unsupported")
@@ -1041,14 +1141,22 @@ els.settingSound.addEventListener("change", async () => {
   }
 });
 
-els.settingPromptSummary.addEventListener("change", async () => {
+els.settingAutoFocusAttention.addEventListener("change", async () => {
   if (isDemoMode) {
-    cfg.showPromptSummary = els.settingPromptSummary.checked;
+    cfg.autoFocusAttention = els.settingAutoFocusAttention.checked;
     refreshConfigButtons();
-    render();
     return;
   }
-  if (await saveSetting({ showPromptSummary: els.settingPromptSummary.checked })) render();
+  await saveSetting({ autoFocusAttention: els.settingAutoFocusAttention.checked });
+});
+
+els.settingOpenVSCodeWithTerminal.addEventListener("change", async () => {
+  if (isDemoMode) {
+    cfg.openVSCodeWithTerminal = els.settingOpenVSCodeWithTerminal.checked;
+    refreshConfigButtons();
+    return;
+  }
+  await saveSetting({ openVSCodeWithTerminal: els.settingOpenVSCodeWithTerminal.checked });
 });
 
 els.settingLanguage.addEventListener("change", async () => {
@@ -1158,7 +1266,8 @@ setInterval(() => refreshStateAges(), 1000);
     cfg = {
       alwaysOnTop: false,
       sound: false,
-      showPromptSummary: true,
+      autoFocusAttention: false,
+      openVSCodeWithTerminal: false,
       language: "zh-CN",
       autoLaunch: false,
       terminalCommand: "claude",
