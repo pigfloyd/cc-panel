@@ -32,7 +32,12 @@
     return session.state === "working" ? `运行 ${duration}` : `${duration}前`;
   }
 
-  const api = { clientLabel, compactDuration, stateAgeLabel };
+  function sessionsWithTerminal(sessions) {
+    if (!Array.isArray(sessions)) return [];
+    return sessions.filter((session) => session && session.terminalPid);
+  }
+
+  const api = { clientLabel, compactDuration, stateAgeLabel, sessionsWithTerminal };
   root.sessionMeta = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof globalThis !== "undefined" ? globalThis : window);

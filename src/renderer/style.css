@@ -558,6 +558,8 @@ input:focus-visible {
 .card .state-label {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: 52px;
   height: 28px;
   padding: 0 7px;
   color: var(--state);
@@ -577,26 +579,12 @@ input:focus-visible {
 .card[data-state="working"] .state-label {
   position: relative;
   overflow: hidden;
-  padding-left: 17px;
   background:
     linear-gradient(110deg, rgba(255, 255, 255, 0.72), rgba(220, 232, 255, 0.76));
   border-color: rgba(47, 111, 235, 0.2);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
     0 1px 2px rgba(47, 111, 235, 0.08);
-}
-
-.card[data-state="working"] .state-label::before {
-  position: absolute;
-  top: 50%;
-  left: 7px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
-  content: "";
-  pointer-events: none;
-  transform: translateY(-50%);
 }
 
 .card .session-context {
@@ -749,7 +737,7 @@ input:focus-visible {
   left: 0;
   z-index: 5;
   display: grid;
-  grid-template-columns: 34px 34px minmax(0, 1fr);
+  grid-template-columns: 34px minmax(0, 1fr);
   gap: 7px;
   padding: 10px var(--content-padding);
   background: rgba(255, 255, 255, 0.96);
@@ -1318,7 +1306,7 @@ input:focus-visible {
 
 @media (max-width: 330px) {
   .bottom-toolbar {
-    grid-template-columns: 32px 32px minmax(0, 1fr);
+    grid-template-columns: 32px minmax(0, 1fr);
     gap: 5px;
     padding-inline: 8px;
   }

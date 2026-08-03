@@ -2,7 +2,7 @@
 // transitions worth interrupting the user for
 const NOTIFY_STATES = new Set(["needs_input", "done", "error"]);
 const orderSessions = createStableSessionOrder();
-const { clientLabel, stateAgeLabel } = sessionMeta;
+const { clientLabel, stateAgeLabel, sessionsWithTerminal } = sessionMeta;
 const { normalizeLanguage, translate, applyDocument } = appI18n;
 const sound = statusSound.createStatusSound();
 const query = new URLSearchParams(window.location.search);
@@ -799,9 +799,10 @@ function createContextSeparator() {
 }
 
 function applySnapshot(snapshot) {
-  console.log(`[applySnapshot] 收到 ${snapshot.length} 个会话:`, snapshot.map(s => ({ id: s.id, state: s.state, client: s.client })));
+  const visibleSnapshot = sessionsWithTerminal(snapshot);
+  console.log(`[applySnapshot] 收到 ${visibleSnapshot.length} 个可见会话:`, visibleSnapshot.map(s => ({ id: s.id, state: s.state, client: s.client })));
   let hasNotifiableChange = false;
-  for (const s of snapshot) {
+  for (const s of visibleSnapshot) {
     const key = s.cardKey || s.id;
     const prev = prevStates.get(key);
     if (prev !== undefined && prev !== s.state && NOTIFY_STATES.has(s.state)) {
@@ -809,12 +810,12 @@ function applySnapshot(snapshot) {
     }
     prevStates.set(key, s.state);
   }
-  const activeKeys = new Set(snapshot.map((s) => s.cardKey || s.id));
+  const activeKeys = new Set(visibleSnapshot.map((s) => s.cardKey || s.id));
   for (const key of [...prevStates.keys()]) {
     if (!activeKeys.has(key)) prevStates.delete(key);
   }
 
-  sessions = snapshot;
+  sessions = visibleSnapshot;
   render();
 
   if (hasNotifiableChange) sound.beep();

@@ -1,6 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { clientLabel, compactDuration, stateAgeLabel } = require("../src/renderer/session-meta");
+const {
+  clientLabel,
+  compactDuration,
+  stateAgeLabel,
+  sessionsWithTerminal,
+} = require("../src/renderer/session-meta");
 
 test("labels known clients and recognizes legacy Codex session IDs", () => {
   assert.equal(clientLabel({ client: "claude", id: "abc" }), "Claude");
@@ -30,4 +35,19 @@ test("distinguishes state age in English", () => {
   const now = 1_000_000;
   assert.equal(stateAgeLabel({ state: "working", stateSince: now - 34_000 }, now, "en"), "Running 34s");
   assert.equal(stateAgeLabel({ state: "done", stateSince: now - 120_000 }, now, "en"), "2m ago");
+});
+
+test("only shows sessions associated with a terminal process", () => {
+  const sessions = [
+    { id: "known-number", terminalPid: 123 },
+    { id: "known-string", terminalPid: "456" },
+    { id: "unknown-null", terminalPid: null },
+    { id: "unknown-missing" },
+  ];
+
+  assert.deepEqual(
+    sessionsWithTerminal(sessions).map((session) => session.id),
+    ["known-number", "known-string"],
+  );
+  assert.deepEqual(sessionsWithTerminal(null), []);
 });
