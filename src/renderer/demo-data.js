@@ -2,10 +2,10 @@
   function createDemoSessions(now = Date.now()) {
     return [
       {
-        id: "demo:cc-panel",
+        id: "demo:just-agent-deck",
         client: "codex",
-        project: "cc-panel",
-        cwd: "C:\\workspace\\cc-panel",
+        project: "just-agent-deck",
+        cwd: "C:\\workspace\\just-agent-deck",
         state: "working",
         stateSince: now - 38_000,
         terminalPid: 14001,

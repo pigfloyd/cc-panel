@@ -1,4 +1,4 @@
-// Detect agent CLIs that were already running before cc-panel was opened.
+// Detect agent CLIs that were already running before just-agent-deck was opened.
 const { execFile } = require("child_process");
 const win32Snapshot = require("./win32-snapshot");
 

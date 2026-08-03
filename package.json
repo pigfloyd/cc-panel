@@ -1,7 +1,7 @@
 {
-  "name": "cc-panel",
+  "name": "just-agent-deck",
   "version": "0.1.0",
-  "description": "Claude Code multi-terminal status panel for Windows",
+  "description": "Multi-terminal agent status deck for Windows",
   "main": "src/main/index.js",
   "scripts": {
     "start": "electron .",

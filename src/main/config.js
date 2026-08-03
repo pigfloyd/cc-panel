@@ -3,9 +3,12 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const DIR = path.join(os.homedir(), ".cc-panel");
+const DIR = path.join(os.homedir(), ".just-agent-deck");
 const CONFIG_PATH = path.join(DIR, "config.json");
-const LEGACY_CONFIG_PATH = path.join(os.homedir(), ".tpanel", "config.json");
+const LEGACY_CONFIG_PATHS = [
+  path.join(os.homedir(), ".cc-panel", "config.json"),
+  path.join(os.homedir(), ".tpanel", "config.json"),
+];
 
 const DEFAULTS = {
   bounds: null,          // {x,y,width,height}
@@ -36,7 +39,9 @@ function readConfig(file) {
 }
 
 function load() {
-  return readConfig(CONFIG_PATH) || readConfig(LEGACY_CONFIG_PATH) || { ...DEFAULTS };
+  return readConfig(CONFIG_PATH)
+    || LEGACY_CONFIG_PATHS.map(readConfig).find(Boolean)
+    || { ...DEFAULTS };
 }
 
 function save(config) {

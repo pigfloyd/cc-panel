@@ -27,7 +27,7 @@ const EVENTS = new Set([
 const SNAPSHOT_EVENTS = new Set(["SessionStart", "UserPromptSubmit"]);
 
 const PORTS = [24333, 24334, 24335, 24336, 24337];
-const RUNTIME_PATH = path.join(os.homedir(), ".cc-panel", "runtime.json");
+const RUNTIME_PATH = path.join(os.homedir(), ".just-agent-deck", "runtime.json");
 const POST_TIMEOUT_MS = 100;
 const STDIN_TIMEOUT_MS = 400;
 
@@ -359,7 +359,7 @@ function requestOnce(port, options) {
         const chunks = [];
         res.on("data", (chunk) => chunks.push(chunk));
         res.on("end", () => resolve({
-          ok: res.statusCode >= 200 && res.statusCode < 300 && res.headers["x-cc-panel"] === "1",
+          ok: res.statusCode >= 200 && res.statusCode < 300 && res.headers["x-just-agent-deck"] === "1",
           status: res.statusCode,
           body: Buffer.concat(chunks).toString(),
         }));

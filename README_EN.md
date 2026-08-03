@@ -1,14 +1,14 @@
 <p align="center">
-  <img src="./src/assets/app-icon.png" alt="cc-panel logo" width="180">
+  <img src="./src/assets/app-icon.png" alt="just-agent-deck logo" width="180">
+  <br>
+  <strong>just-agent-deck</strong>
 </p>
-
-# cc-panel
 
 [中文](./README.md)
 
 A multi-session status panel for Claude Code and Codex CLI on Windows. It brings AI coding sessions scattered across terminal windows into one view, so you can quickly see which sessions are running, waiting for input, complete, or interrupted, then click a card to return directly to its terminal window.
 
-![cc-panel screenshot](./intro.png)
+![just-agent-deck screenshot](./intro.png)
 
 ## Features
 
@@ -70,7 +70,7 @@ Demo mode does not start the local event service, install hooks, read real sessi
 
 ## Configuration and Hooks
 
-Runtime data is stored in `~/.cc-panel/` in the user's home directory:
+Runtime data is stored in `~/.just-agent-deck/` in the user's home directory:
 
 - `config.json`: window position and application settings
 - `runtime.json`: local event service runtime information
@@ -80,9 +80,9 @@ The application receives hook events through a local loopback address, using por
 - Claude Code: `~/.claude/settings.json`
 - Codex CLI: `$CODEX_HOME/hooks.json`, or `~/.codex/hooks.json` when `CODEX_HOME` is not set
 
-Before the first modification, the application creates a backup with the `.cc-panel-bak` suffix for each file and preserves other existing hooks in the configuration. The panel checks hooks and running sessions every five seconds, restoring a missing cc-panel hook automatically.
+Before the first modification, the application creates a backup with the `.cc-panel-bak` suffix for each file and preserves other existing hooks in the configuration. The panel checks hooks and running sessions every five seconds, restoring a missing just-agent-deck hook automatically.
 
-New hooks are read only by Claude Code / Codex CLI sessions started after installation. If Codex CLI reports that hooks are not trusted yet, run `/hooks` in Codex to review and trust the cc-panel hook. You may need to trust it again after its content changes.
+New hooks are read only by Claude Code / Codex CLI sessions started after installation. If Codex CLI reports that hooks are not trusted yet, run `/hooks` in Codex to review and trust the just-agent-deck hook. You may need to trust it again after its content changes.
 
 ## How It Works
 
@@ -93,7 +93,7 @@ Claude Code / Codex CLI
 hook/cc-panel-hook.js
         │ HTTP POST (local loopback only)
         ▼
-cc-panel ──► session status cards ──► associated terminal window
+just-agent-deck ──► session status cards ──► associated terminal window
 ```
 
 Agent hooks provide most status information. The hook records the terminal window associated with a session and sends events to the panel. The panel also periodically scans local processes to supplement sessions that have not emitted a hook event yet. Clicking a card restores and focuses its window through the Windows API.
@@ -107,7 +107,7 @@ Agent hooks provide most status information. The hook records the terminal windo
 
 ## Removing Hooks
 
-The interface does not currently provide an uninstall action. Remove cc-panel entries whose commands contain `cc-panel-hook.js` or `cc-panel-hook.cmd` from `~/.claude/settings.json` and `~/.codex/hooks.json`, or restore the corresponding `.cc-panel-bak` backup. Exiting or deleting the application does not remove these hooks automatically.
+The interface does not currently provide an uninstall action. Remove just-agent-deck entries whose commands contain `cc-panel-hook.js` or `cc-panel-hook.cmd` from `~/.claude/settings.json` and `~/.codex/hooks.json`, or restore the corresponding `.cc-panel-bak` backup. Exiting or deleting the application does not remove these hooks automatically.
 
 ## Development
 

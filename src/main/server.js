@@ -5,7 +5,7 @@ const os = require("os");
 const path = require("path");
 
 const PORTS = [24333, 24334, 24335, 24336, 24337];
-const RUNTIME_DIR = path.join(os.homedir(), ".cc-panel");
+const RUNTIME_DIR = path.join(os.homedir(), ".just-agent-deck");
 const RUNTIME_PATH = path.join(RUNTIME_DIR, "runtime.json");
 const BODY_LIMIT = 64 * 1024;
 
@@ -15,7 +15,7 @@ function start(onEvent) {
 
     function tryPort(i) {
       if (i >= PORTS.length) {
-        reject(new Error("cc-panel: all candidate ports are busy (24333-24337)"));
+        reject(new Error("just-agent-deck: all candidate ports are busy (24333-24337)"));
         return;
       }
       const port = PORTS[i];
@@ -30,7 +30,7 @@ function start(onEvent) {
 }
 
 function handle(req, res, onEvent) {
-  res.setHeader("x-cc-panel", "1");
+  res.setHeader("x-just-agent-deck", "1");
   let url;
   try {
     url = new URL(req.url, "http://127.0.0.1");
@@ -51,7 +51,7 @@ function handle(req, res, onEvent) {
   }
 
   readJsonBody(req, res, (body) => {
-    try { onEvent(body); } catch (err) { console.error("[cc-panel] event error:", err); }
+    try { onEvent(body); } catch (err) { console.error("[just-agent-deck] event error:", err); }
     res.writeHead(200);
     res.end("ok");
   });
@@ -98,7 +98,7 @@ function writeRuntime(port) {
   try {
     fs.mkdirSync(RUNTIME_DIR, { recursive: true });
     const tmp = path.join(RUNTIME_DIR, `.runtime.${process.pid}.tmp`);
-    fs.writeFileSync(tmp, JSON.stringify({ app: "cc-panel", port }, null, 2), "utf8");
+    fs.writeFileSync(tmp, JSON.stringify({ app: "just-agent-deck", port }, null, 2), "utf8");
     fs.renameSync(tmp, RUNTIME_PATH);
   } catch {}
 }
@@ -111,7 +111,7 @@ function sendTestEvent(port) {
   return new Promise((resolve) => {
     const body = JSON.stringify({
       __ccPanelTest: true,
-      session_id: `cc-panel-onboarding-${Date.now()}`,
+      session_id: `just-agent-deck-onboarding-${Date.now()}`,
     });
     const request = http.request({
       host: "127.0.0.1",
@@ -125,7 +125,7 @@ function sendTestEvent(port) {
     }, (response) => {
       response.resume();
       response.on("end", () => resolve({
-        ok: response.statusCode === 200 && response.headers["x-cc-panel"] === "1",
+        ok: response.statusCode === 200 && response.headers["x-just-agent-deck"] === "1",
         statusCode: response.statusCode,
         testedAt: Date.now(),
       }));

@@ -1,14 +1,14 @@
 <p align="center">
-  <img src="./src/assets/app-icon.png" alt="cc-panel logo" width="180">
+  <img src="./src/assets/app-icon.png" alt="just-agent-deck logo" width="180">
+  <br>
+  <strong>just-agent-deck</strong>
 </p>
-
-# cc-panel
 
 [English](./README_EN.md)
 
 一个面向 Windows 的 Claude Code / Codex CLI 多会话状态面板。它把分散在不同终端里的 AI 编程会话集中展示，让你快速判断哪个会话正在运行、等待输入、已经完成或出现异常，并可点击卡片直接切回对应终端窗口。
 
-![cc-panel 软件截图](./intro.png)
+![just-agent-deck 软件截图](./intro.png)
 
 ## 功能
 
@@ -70,7 +70,7 @@ npm run demo
 
 ## 配置与 hooks
 
-运行数据保存在用户主目录的 `~/.cc-panel/`：
+运行数据保存在用户主目录的 `~/.just-agent-deck/`：
 
 - `config.json`：窗口位置与应用设置
 - `runtime.json`：本地事件服务的运行信息
@@ -80,9 +80,9 @@ npm run demo
 - Claude Code：`~/.claude/settings.json`
 - Codex CLI：`$CODEX_HOME/hooks.json`，未设置 `CODEX_HOME` 时使用 `~/.codex/hooks.json`
 
-首次修改前，应用会分别创建带 `.cc-panel-bak` 后缀的备份文件，并保留配置中已有的其他 hooks。面板每 5 秒检查一次 hooks 和正在运行的会话，缺失的 cc-panel hook 会被自动补回。
+首次修改前，应用会分别创建带 `.cc-panel-bak` 后缀的备份文件，并保留配置中已有的其他 hooks。面板每 5 秒检查一次 hooks 和正在运行的会话，缺失的 just-agent-deck Hook 会被自动补回。
 
-新安装的 hooks 只会由之后启动的 Claude Code / Codex CLI 会话读取。Codex CLI 若提示 hooks 尚未信任，请在 Codex 中运行 `/hooks`，审核并信任 cc-panel hook；hook 内容更新后可能需要重新信任。
+新安装的 hooks 只会由之后启动的 Claude Code / Codex CLI 会话读取。Codex CLI 若提示 hooks 尚未信任，请在 Codex 中运行 `/hooks`，审核并信任 just-agent-deck Hook；hook 内容更新后可能需要重新信任。
 
 ## 工作原理
 
@@ -93,7 +93,7 @@ Claude Code / Codex CLI
 hook/cc-panel-hook.js
         │ HTTP POST（仅本机回环地址）
         ▼
-cc-panel ──► 会话状态卡片 ──► 对应终端窗口
+just-agent-deck ──► 会话状态卡片 ──► 对应终端窗口
 ```
 
 状态主要由 Agent hooks 提供。hook 会记录会话所属的终端窗口并将事件发送给面板；面板也会定期扫描本机进程，补充尚未产生 hook 事件的会话。点击卡片时，应用通过 Windows API 还原并聚焦对应窗口。
@@ -107,7 +107,7 @@ cc-panel ──► 会话状态卡片 ──► 对应终端窗口
 
 ## 卸载 hooks
 
-当前界面没有卸载入口。可删除 `~/.claude/settings.json` 和 `~/.codex/hooks.json` 中命令包含 `cc-panel-hook.js` 或 `cc-panel-hook.cmd` 的 cc-panel 条目，或使用对应的 `.cc-panel-bak` 文件恢复。退出或删除应用不会自动清理这些 hooks。
+当前界面没有卸载入口。可删除 `~/.claude/settings.json` 和 `~/.codex/hooks.json` 中命令包含 `cc-panel-hook.js` 或 `cc-panel-hook.cmd` 的 just-agent-deck 条目，或使用对应的 `.cc-panel-bak` 文件恢复。退出或删除应用不会自动清理这些 hooks。
 
 ## 开发
 

@@ -138,7 +138,7 @@ async function main() {
     });
     eventServiceStatus = { status: "running", port: eventService.port };
   } catch (err) {
-    dialog.showErrorBox("cc-panel", String(err.message || err));
+    dialog.showErrorBox("just-agent-deck", String(err.message || err));
     app.quit();
     return;
   }
@@ -533,7 +533,7 @@ function createWindow() {
     } : {}),
     autoHideMenuBar: true,
     alwaysOnTop: demoMode ? false : !!cfg.alwaysOnTop,
-    title: demoMode ? "cc-panel demo" : "cc-panel",
+    title: demoMode ? "just-agent-deck demo" : "just-agent-deck",
     webPreferences: {
       preload: path.join(__dirname, "..", "preload.js"),
       contextIsolation: true,

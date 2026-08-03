@@ -1273,7 +1273,7 @@ setInterval(() => refreshStateAges(), 1000);
       autoLaunch: false,
       terminalCommand: "claude",
       terminalExecutable: null,
-      terminalHistory: ["C:\\workspace\\cc-panel", "C:\\workspace\\docs-site"],
+      terminalHistory: ["C:\\workspace\\just-agent-deck", "C:\\workspace\\docs-site"],
     };
     applyLanguage();
     renderTerminalHistory();

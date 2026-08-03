@@ -1,4 +1,4 @@
-// hook-installer.js - idempotently install cc-panel hooks for Claude Code and Codex CLI.
+// hook-installer.js - idempotently install just-agent-deck hooks for Claude Code and Codex CLI.
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
